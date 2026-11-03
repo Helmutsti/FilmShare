@@ -1,0 +1,47 @@
+# FilmShare con Docker Compose.
+#
+#   cp .env.example .env      # imposta almeno SHARED_DIR (la cartella del NAS)
+#   docker compose up -d --build
+#   docker compose exec app npm run crea-admin:prod -- tua@email.it --nome "Nome Cognome"
+#
+# La dashboard risponde su http://<server>:${WEB_PORT}. L'HTTPS va messo davanti (Tailscale, un reverse proxy, ecc.):
+# in quel caso imposta COOKIE_SECURE=true.
+
+services:
+  app:
+    build:
+      context: .
+      target: app
+    image: filmshare-app
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Europe/Rome}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      MAX_FILE_GB: ${MAX_FILE_GB:-200}
+      PUSH_SUBJECT: ${PUSH_SUBJECT:-mailto:admin@filmshare.local}
+      LINK_SECRET: ${LINK_SECRET:-}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+    volumes:
+      # Database: sul disco del server (volume Docker), MAI sul NAS.
+      - dati:/data/db
+      # Cartella condivisa del NAS. Gli upload in corso stanno in .upload-in-corso, sullo stesso NAS:
+      # a fine upload il file si sposta all'istante, senza ricopiare 200 GB.
+      - ${SHARED_DIR:-./data/condivisi}:/data/condivisi
+
+  web:
+    build:
+      context: .
+      target: web
+    image: filmshare-web
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    volumes:
+      # nginx legge i file da mandare nei download: solo lettura.
+      - ${SHARED_DIR:-./data/condivisi}:/data/condivisi:ro
+
+volumes:
+  dati:

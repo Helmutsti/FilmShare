@@ -1,0 +1,30 @@
+{
+  "name": "@filmshare/server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=../.env src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node --env-file-if-exists=../.env dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "crea-admin": "tsx --env-file-if-exists=../.env src/cli/crea-admin.ts",
+    "crea-admin:prod": "node dist/cli/crea-admin.js",
+    "test": "node --import tsx --test --test-timeout=30000 test/*.test.ts"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.1.5",
+    "@fastify/static": "^10.1.8",
+    "@tus/file-store": "^2.1.2",
+    "@tus/server": "^2.4.7",
+    "better-sqlite3": "^12.2.0",
+    "fastify": "^5.4.0",
+    "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.15.0",
+    "@types/web-push": "^3.6.4",
+    "tsx": "^4.20.0",
+    "typescript": "^5.8.3"
+  }
+}
