@@ -35,13 +35,12 @@ export function CaricaFile() {
     void take(e.dataTransfer.files);
   }
 
-  const upThreshold = io.limiti.approval === 'never' ? null : bytes(io.soglie.upload);
 
   return (
     <>
       <PageHeader
         title="Carica file"
-        subtitle="I file caricati entrano in coda: sotto soglia vengono pubblicati subito nella cartella condivisa, sopra serve l'approvazione dell'amministratore."
+        subtitle="Finché resti nella tua banda i file vengono pubblicati subito nell'archivio; oltre la banda serve l'approvazione dell'amministratore."
       />
 
       {askPush && (
@@ -58,40 +57,6 @@ export function CaricaFile() {
 
       <BandCard banda={io.banda} />
 
-      {!io.limiti.can_upload || io.cartellaUpload === null ? (
-        <section className="dropzone" aria-label="Caricamento non abilitato" style={{ borderColor: 'var(--border-strong)' }}>
-          <span className="drop-icon" style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }}><Upload size={22} /></span>
-          <h2 className="t-title">Il caricamento non è abilitato</h2>
-          <p className="t-body c-secondary" style={{ margin: 0 }}>
-            {!io.limiti.can_upload
-              ? "Per il tuo account l'amministratore ha permesso solo i download. Puoi scaricare dalla cartella condivisa."
-              : "L'amministratore non ha ancora scelto la cartella in cui salvare i file caricati. Puoi scaricare dalla cartella condivisa."}
-          </p>
-          <Link className="btn btn-secondary" to="/condivisi">Vai alla cartella condivisa</Link>
-        </section>
-      ) : (
-      <section
-        className={`dropzone${over ? ' over' : ''}`}
-        onDragOver={(e) => { e.preventDefault(); setOver(true); }}
-        onDragLeave={() => setOver(false)}
-        onDrop={onDrop}
-        aria-label="Area di caricamento"
-      >
-        <span className="drop-icon"><Upload size={22} /></span>
-        <h2 className="t-title">Trascina qui film o cartelle</h2>
-        <p className="t-body c-secondary" style={{ margin: 0 }}>Fino a {bytes(io.soglie.maxFile)} per file · upload a blocchi, riprende da dove si era interrotto</p>
-        <div className="inline" style={{ gap: 8 }}>
-          <button className="btn btn-primary" onClick={() => fileInput.current?.click()}>Scegli file</button>
-          <button className="btn btn-secondary" onClick={() => dirInput.current?.click()}>Scegli cartella</button>
-        </div>
-        <p className="t-caption c-muted" style={{ margin: 0 }}>
-          Max {io.limiti.max_concurrent} upload simultanei{upThreshold ? ` · i file oltre ${upThreshold} richiedono approvazione` : ''}
-        </p>
-        <input ref={fileInput} type="file" multiple hidden onChange={(e) => { void take(e.target.files); e.target.value = ''; }} />
-        <input ref={dirInput} type="file" multiple hidden {...{ webkitdirectory: '' }} onChange={(e) => { void take(e.target.files); e.target.value = ''; }} />
-      </section>
-      )}
-
       {errors.length > 0 && (
         <div className="banner banner-danger" role="alert">
           <div className="grow t-caption">{errors.map((e) => <div key={e}>{e}</div>)}</div>
@@ -99,13 +64,46 @@ export function CaricaFile() {
         </div>
       )}
 
-      <section className="card flush">
-        <div className="card-head">
-          <h2 className="t-heading">I miei trasferimenti</h2>
-          <Link className="btn btn-ghost" to="/trasferimenti">Vedi tutti</Link>
-        </div>
-        <TransferTable rows={(mine.data ?? []).slice(0, 6)} empty="Nessun trasferimento: trascina un file qui sopra per cominciare." />
-      </section>
+      <div className="upload-row">
+        {!io.limiti.can_upload || io.cartellaUpload === null ? (
+          <section className="dropzone" aria-label="Caricamento non abilitato" style={{ borderColor: 'var(--border-strong)' }}>
+            <span className="drop-icon" style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }}><Upload size={22} /></span>
+            <h2 className="t-title">Il caricamento non è abilitato</h2>
+            <p className="t-body c-secondary" style={{ margin: 0 }}>
+              {!io.limiti.can_upload
+                ? "Per il tuo account l'amministratore ha permesso solo i download. Puoi scaricare dall'archivio."
+                : "L'amministratore non ha ancora scelto la cartella in cui salvare i file caricati. Puoi scaricare dall'archivio."}
+            </p>
+            <Link className="btn btn-secondary" to="/condivisi">Vai all'archivio</Link>
+          </section>
+        ) : (
+        <section
+          className={`dropzone${over ? ' over' : ''}`}
+          onDragOver={(e) => { e.preventDefault(); setOver(true); }}
+          onDragLeave={() => setOver(false)}
+          onDrop={onDrop}
+          aria-label="Area di caricamento"
+        >
+          <span className="drop-icon"><Upload size={22} /></span>
+          <h2 className="t-title">Trascina qui film o cartelle</h2>
+          <p className="t-body c-secondary" style={{ margin: 0 }}>Fino a {bytes(io.maxFile)} per file · upload a blocchi, riprende da dove si era interrotto</p>
+          <div className="inline" style={{ gap: 8 }}>
+            <button className="btn btn-primary" onClick={() => fileInput.current?.click()}>Scegli file</button>
+            <button className="btn btn-secondary" onClick={() => dirInput.current?.click()}>Scegli cartella</button>
+          </div>
+          <input ref={fileInput} type="file" multiple hidden onChange={(e) => { void take(e.target.files); e.target.value = ''; }} />
+          <input ref={dirInput} type="file" multiple hidden {...{ webkitdirectory: '' }} onChange={(e) => { void take(e.target.files); e.target.value = ''; }} />
+        </section>
+        )}
+
+        <section className="card flush">
+          <div className="card-head">
+            <h2 className="t-heading">I miei trasferimenti</h2>
+            <Link className="btn btn-ghost" to="/trasferimenti">Vedi tutti</Link>
+          </div>
+          <TransferTable rows={(mine.data ?? []).slice(0, 6)} empty="Nessun trasferimento: trascina un file nel riquadro per cominciare." ridotta />
+        </section>
+      </div>
     </>
   );
 }

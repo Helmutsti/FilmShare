@@ -8,7 +8,7 @@ test('il server risponde e il database è alla versione più recente', async () 
   const app = await buildApp({ ...loadConfig({}), dbPath: ':memory:' }, { logger: false });
   const res = await app.inject({ method: 'GET', url: '/api/salute' });
   assert.equal(res.statusCode, 200);
-  assert.deepEqual(res.json(), { stato: 'ok', database: '007_cartelle' });
+  assert.deepEqual(res.json(), { stato: 'ok', database: '009_solo_quota' });
   await app.close();
 });
 

@@ -26,10 +26,8 @@ export interface Config {
   dbPath: string;
   sharedPath: string;
   uploadTmpPath: string;
-  /** "direct": il server Node manda i file (sviluppo). "accel": li manda nginx con X-Accel-Redirect (produzione). */
-  downloadMode: 'direct' | 'accel';
-  /** Prefisso interno di nginx per i file protetti (solo in modalità accel). */
-  accelPrefix: string;
+  /** Dashboard compilata (web/dist): la serve il server stesso. Se la cartella non c'è (sviluppo) la serve Vite. */
+  webPath: string;
   maxFileBytes: number;
   cookieSecure: boolean;
   pushSubject: string;
@@ -39,16 +37,13 @@ export interface Config {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const mode = (env.DOWNLOAD_MODE?.trim() || 'direct') as Config['downloadMode'];
-  if (mode !== 'direct' && mode !== 'accel') throw new Error(`DOWNLOAD_MODE deve essere "direct" o "accel", trovato "${mode}"`);
   return {
     host: env.HOST?.trim() || '127.0.0.1',
     port: numero(env.PORT, 3000, 'PORT'),
     dbPath: env.DB_PATH?.trim() === ':memory:' ? ':memory:' : percorso(env.DB_PATH, './data/filmshare.db'),
     sharedPath: percorso(env.SHARED_PATH, './data/condivisi'),
     uploadTmpPath: percorso(env.UPLOAD_TMP_PATH, './data/condivisi/.upload-in-corso'),
-    downloadMode: mode,
-    accelPrefix: env.ACCEL_PREFIX?.trim() || '/_condivisi/',
+    webPath: percorso(env.WEB_PATH, './web/dist'),
     maxFileBytes: numero(env.MAX_FILE_GB, 200, 'MAX_FILE_GB') * 1024 ** 3,
     cookieSecure: booleano(env.COOKIE_SECURE, false),
     pushSubject: env.PUSH_SUBJECT?.trim() || 'mailto:admin@filmshare.local',

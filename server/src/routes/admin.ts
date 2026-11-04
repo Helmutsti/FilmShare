@@ -6,7 +6,7 @@ import { checkFolder, invalidateScan, isExposed, listFolders } from '../files.js
 import { createActiveUser, findUserByEmail, type Role } from '../db/users.js';
 import { getUsage } from '../quota.js';
 import {
-  approve, approveWithinLimits, HttpError, reject, type Transfer,
+  approve, approveWithinLimits, hideHistory, HttpError, reject, type Transfer,
 } from '../transfers.js';
 import { transferView } from './transfers.js';
 import { idParam, requireAdmin, type Ctx } from '../context.js';
@@ -16,15 +16,12 @@ const limitsSchema = {
   properties: {
     quota: { type: 'integer', minimum: 0 },
     periodo: { enum: ['day', 'week', 'month'] },
-    velocitaKbps: { type: 'integer', minimum: 0 }, // 0 = nessun limite
-    simultanei: { type: 'integer', minimum: 1, maximum: 20 },
-    approvazione: { enum: ['never', 'over_threshold', 'always'] },
     permettiUpload: { type: 'boolean' },
   },
 } as const;
 
 type LimitsBody = {
-  quota?: number; periodo?: string; velocitaKbps?: number; simultanei?: number; approvazione?: string; permettiUpload?: boolean;
+  quota?: number; periodo?: string; permettiUpload?: boolean;
 };
 
 export async function adminRoutes(app: FastifyInstance, { ctx }: { ctx: Ctx }) {
@@ -36,7 +33,7 @@ export async function adminRoutes(app: FastifyInstance, { ctx }: { ctx: Ctx }) {
     const r = db
       .prepare(
         `SELECT u.id, u.email, u.name, u.role, u.status, u.created_at, u.last_seen_at,
-                l.quota_bytes, l.period, l.max_speed_kbps, l.max_concurrent, l.approval, l.can_upload
+                l.quota_bytes, l.period, l.can_upload
          FROM users u JOIN user_limits l ON l.user_id = u.id WHERE u.id = ?`,
       )
       .get(id) as any;
@@ -46,7 +43,7 @@ export async function adminRoutes(app: FastifyInstance, { ctx }: { ctx: Ctx }) {
       id: r.id, email: r.email, nome: r.name, ruolo: r.role,
       stato: r.status === 'active' && banda.remaining === 0 && banda.quota > 0 ? 'blocked' : r.status,
       creato: r.created_at, ultimoAccesso: r.last_seen_at,
-      limiti: { quota: r.quota_bytes, periodo: r.period, velocitaKbps: r.max_speed_kbps, simultanei: r.max_concurrent, approvazione: r.approval, permettiUpload: r.can_upload === 1 },
+      limiti: { quota: r.quota_bytes, periodo: r.period, permettiUpload: r.can_upload === 1 },
       banda,
     };
   }
@@ -62,8 +59,15 @@ export async function adminRoutes(app: FastifyInstance, { ctx }: { ctx: Ctx }) {
     const id = idParam(req);
     const u = userView(id);
     if (!u) throw new HttpError(404, 'Utente non trovato');
-    const recent = db.prepare('SELECT * FROM transfers WHERE user_id = ? ORDER BY created_at DESC LIMIT 5').all(id) as Transfer[];
+    const recent = db.prepare('SELECT * FROM transfers WHERE user_id = ? AND hidden_at IS NULL ORDER BY created_at DESC LIMIT 5').all(id) as Transfer[];
     return { ...u, ultimiTrasferimenti: recent.map((t) => transferView(ctx, t)) };
+  });
+
+  app.delete('/api/admin/utenti/:id/trasferimenti', async (req) => {
+    requireAdmin(req);
+    const id = idParam(req);
+    if (!userView(id)) throw new HttpError(404, 'Utente non trovato');
+    return { nascosti: hideHistory(ctx, id) };
   });
 
   app.post<{ Body: { email: string; nome: string; password: string; ruolo?: Role; limiti?: LimitsBody } }>('/api/admin/utenti', {
@@ -94,8 +98,7 @@ export async function adminRoutes(app: FastifyInstance, { ctx }: { ctx: Ctx }) {
 
   function applyLimits(id: number, l: LimitsBody) {
     const map: Record<keyof LimitsBody, string> = {
-      quota: 'quota_bytes', periodo: 'period', velocitaKbps: 'max_speed_kbps', simultanei: 'max_concurrent', approvazione: 'approval',
-      permettiUpload: 'can_upload',
+      quota: 'quota_bytes', periodo: 'period', permettiUpload: 'can_upload',
     };
     for (const [k, col] of Object.entries(map)) {
       const v = l[k as keyof LimitsBody];
@@ -257,9 +260,6 @@ export async function adminRoutes(app: FastifyInstance, { ctx }: { ctx: Ctx }) {
   app.get('/api/admin/predefiniti', async (req) => {
     requireAdmin(req);
     const s = getSettings(db);
-    return {
-      quota: s.default_quota_bytes, periodo: s.default_period,
-      velocitaKbps: s.default_max_speed_kbps, simultanei: s.default_max_concurrent,
-    };
+    return { quota: s.default_quota_bytes, periodo: s.default_period };
   });
 }

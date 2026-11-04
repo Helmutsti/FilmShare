@@ -1,7 +1,6 @@
 // Tipi e chiamate verso il server. Le chiamate usano il cookie di sessione (stessa origine).
 
 export type Period = 'day' | 'week' | 'month';
-export type Approval = 'never' | 'over_threshold' | 'always';
 export type TransferStatus = 'pending' | 'approved' | 'in_progress' | 'completed' | 'rejected' | 'cancelled' | 'expired';
 
 export interface Banda {
@@ -9,10 +8,11 @@ export interface Banda {
   upload: number; download: number; inProgress: number; used: number; remaining: number;
 }
 export interface Utente { id: number; email: string; name: string; role: 'user' | 'admin'; status: string }
-export interface Limiti { quota_bytes: number; period: Period; max_speed_kbps: number; max_concurrent: number; approval: Approval; can_upload: boolean }
+export interface Limiti { quota_bytes: number; period: Period; can_upload: boolean }
 export interface Io {
   utente: Utente; limiti: Limiti; banda: Banda; pushKey: string;
-  soglie: { upload: number; download: number; maxFile: number };
+  /** Dimensione massima di un file caricato (impostazione del server). */
+  maxFile: number;
   /** "Sospendi trasferimenti" attivo: nessun upload o download per nessuno. */
   sospesi: boolean;
   /** Cartella di destinazione degli upload; null = non ancora scelta (upload non possibili). */
@@ -39,12 +39,12 @@ export interface Richiesta extends Trasferimento {
 }
 export interface UtenteAdmin {
   id: number; email: string; nome: string; ruolo: 'user' | 'admin'; stato: string; creato: string; ultimoAccesso: string | null;
-  limiti: { quota: number; periodo: Period; velocitaKbps: number; simultanei: number; approvazione: Approval; permettiUpload: boolean };
+  limiti: { quota: number; periodo: Period; permettiUpload: boolean };
   banda: Banda;
   ultimiTrasferimenti?: Trasferimento[];
 }
 /** Valori proposti nel modulo "Nuovo utente". */
-export interface Predefiniti { quota: number; periodo: Period; velocitaKbps: number; simultanei: number }
+export interface Predefiniti { quota: number; periodo: Period }
 export interface Riepilogo { inAttesa: number; upload: number; download: number; piuVecchia: string | null; volume: number; trafficoOggi: number }
 
 export class ApiError extends Error {
@@ -71,13 +71,15 @@ export const api = {
   uscita: () => call<{ ok: true }>('POST', '/api/uscita'),
   io: () => call<Io>('GET', '/api/io'),
   mieiTrasferimenti: () => call<Trasferimento[]>('GET', '/api/io/trasferimenti'),
+  svuotaStorico: () => call<{ nascosti: number }>('DELETE', '/api/io/trasferimenti'),
   annulla: (id: number) => call<{ ok: true }>('DELETE', `/api/trasferimenti/${id}`),
   richiestaUpload: (nome: string, dimensione: number) => call<Trasferimento>('POST', '/api/upload/richieste', { nome, dimensione }),
-  file: () => call<{ file: FileCondiviso[]; sogliaApprovazione: number; banda: Banda }>('GET', '/api/file'),
+  file: () => call<{ file: FileCondiviso[]; banda: Banda }>('GET', '/api/file'),
   scarica: (fileId: number) => call<Trasferimento>('POST', `/api/file/${fileId}/download`),
 
   utenti: () => call<UtenteAdmin[]>('GET', '/api/admin/utenti'),
   utente: (id: number) => call<UtenteAdmin>('GET', `/api/admin/utenti/${id}`),
+  svuotaStoricoUtente: (id: number) => call<{ nascosti: number }>('DELETE', `/api/admin/utenti/${id}/trasferimenti`),
   creaUtente: (b: { email: string; nome: string; password: string; ruolo?: 'user' | 'admin'; limiti?: Partial<UtenteAdmin['limiti']> }) =>
     call<UtenteAdmin>('POST', '/api/admin/utenti', b),
   modificaUtente: (id: number, b: { nome?: string; ruolo?: 'user' | 'admin'; stato?: 'active' | 'suspended'; password?: string; limiti?: Partial<UtenteAdmin['limiti']> }) =>

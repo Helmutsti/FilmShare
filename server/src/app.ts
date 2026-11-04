@@ -1,4 +1,6 @@
-import Fastify from 'fastify';
+import fs from 'node:fs';
+import path from 'node:path';
+import Fastify, { type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import type { Config } from './config.js';
@@ -30,7 +32,6 @@ export async function buildApp(config: Config, { logger = true } = {}) {
   };
 
   await app.register(cookie);
-  await app.register(fastifyStatic, { root: config.sharedPath, serve: false });
 
   app.decorateRequest('user', null);
   app.addHook('onRequest', async (req) => {
@@ -52,6 +53,7 @@ export async function buildApp(config: Config, { logger = true } = {}) {
   await app.register(uploadRoutes, { ctx });
   await app.register(adminRoutes, { ctx });
   await app.register(liveRoutes, { ctx });
+  await serveDashboard(app, config.webPath);
 
   const timers = [
     setInterval(() => bus.heartbeat(), 25_000),
@@ -64,4 +66,26 @@ export async function buildApp(config: Config, { logger = true } = {}) {
   });
 
   return Object.assign(app, { ctx });
+}
+
+/**
+ * La dashboard compilata (web/dist) servita dal server stesso: una sola app, niente nginx.
+ * Le pagine della dashboard sono tutte index.html (applicazione a pagina singola).
+ */
+async function serveDashboard(app: FastifyInstance, root: string) {
+  if (!fs.existsSync(path.join(root, 'index.html'))) return; // sviluppo: la serve Vite
+  await app.register(fastifyStatic, {
+    root,
+    wildcard: false,
+    setHeaders(res, file) {
+      const name = path.basename(file);
+      if (name === 'index.html' || name === 'sw.js') res.header('Cache-Control', 'no-cache');
+      else if (file.includes(`${path.sep}assets${path.sep}`)) res.header('Cache-Control', 'public, max-age=31536000, immutable');
+    },
+  });
+  const index = fs.readFileSync(path.join(root, 'index.html'));
+  app.setNotFoundHandler((req, reply) => {
+    if (req.method !== 'GET' || req.url.startsWith('/api/')) return reply.code(404).send({ errore: 'Non trovato' });
+    return reply.header('Cache-Control', 'no-cache').type('text/html; charset=utf-8').send(index);
+  });
 }

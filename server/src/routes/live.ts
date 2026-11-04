@@ -10,7 +10,7 @@ export async function liveRoutes(app: FastifyInstance, { ctx }: { ctx: Ctx }) {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
       Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no', // nginx: non trattenere i messaggi
+      'X-Accel-Buffering': 'no', // se davanti c'è un reverse proxy (es. nginx): non trattenere i messaggi
     });
     reply.raw.write('retry: 3000\n\n');
     const remove = ctx.bus.add(u.id, u.role === 'admin', reply.raw);

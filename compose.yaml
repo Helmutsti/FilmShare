@@ -12,11 +12,11 @@ name: filmshare
 
 services:
   app:
-    build:
-      context: .
-      target: app
-    image: filmshare-app
+    build: .
+    image: filmshare
     restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:3000"
     environment:
       TZ: ${TZ:-Europe/Rome}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
@@ -32,20 +32,6 @@ services:
       # si sceglie dalla dashboard, pagina "Cartelle". Gli upload in corso stanno in .upload-in-corso, sullo
       # stesso NAS: a fine upload il file si sposta all'istante, senza ricopiare 200 GB.
       - ${SHARED_DIR:-./data/condivisi}:/data/condivisi
-
-  web:
-    build:
-      context: .
-      target: web
-    image: filmshare-web
-    restart: unless-stopped
-    depends_on:
-      - app
-    ports:
-      - "${WEB_PORT:-8080}:80"
-    volumes:
-      # nginx legge i file da mandare nei download: solo lettura.
-      - ${SHARED_DIR:-./data/condivisi}:/data/condivisi:ro
 
 volumes:
   dati:

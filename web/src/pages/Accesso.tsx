@@ -27,7 +27,7 @@ export function Accesso() {
   return (
     <div className="login-wrap">
       <form className="login-card" onSubmit={submit}>
-        <span className="brand-logo" style={{ width: 40, height: 40, borderRadius: 10 }}><Play size={18} fill="#fff" color="#fff" /></span>
+        <span className="brand-logo" style={{ width: 40, height: 40, borderRadius: 10 }}><Play size={18} fill="var(--text-on-accent)" color="var(--text-on-accent)" /></span>
         <div className="stack-sm" style={{ gap: 8 }}>
           <h1 className="t-title">Accedi a FilmShare</h1>
           <p className="t-body c-secondary" style={{ margin: 0 }}>

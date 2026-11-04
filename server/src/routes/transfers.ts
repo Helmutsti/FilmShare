@@ -1,10 +1,9 @@
-import path from 'node:path';
+import send from '@fastify/send';
 import type { FastifyInstance } from 'fastify';
-import { getUsage, getLimits, downloadRateBytes } from '../quota.js';
-import { getSettings } from '../db/settings.js';
+import { getUsage } from '../quota.js';
 import { syncShared, safeJoin } from '../files.js';
 import {
-  cancel, checkDownload, downloadPath, getTransfer, HttpError, requestTransfer, type Transfer,
+  cancel, checkDownload, hideHistory, downloadPath, getTransfer, HttpError, requestTransfer, type Transfer,
 } from '../transfers.js';
 import { idParam, requireUser, type Ctx } from '../context.js';
 
@@ -21,8 +20,13 @@ export async function transferRoutes(app: FastifyInstance, { ctx }: { ctx: Ctx }
 
   app.get('/api/io/trasferimenti', async (req) => {
     const u = requireUser(req);
-    const rows = db.prepare('SELECT * FROM transfers WHERE user_id = ? ORDER BY created_at DESC LIMIT 200').all(u.id) as Transfer[];
+    const rows = db.prepare('SELECT * FROM transfers WHERE user_id = ? AND hidden_at IS NULL ORDER BY created_at DESC LIMIT 200').all(u.id) as Transfer[];
     return rows.map((t) => transferView(ctx, t));
+  });
+
+  app.delete('/api/io/trasferimenti', async (req) => {
+    const u = requireUser(req);
+    return { nascosti: hideHistory(ctx, u.id) };
   });
 
   app.delete('/api/trasferimenti/:id', async (req) => {
@@ -68,7 +72,6 @@ export async function transferRoutes(app: FastifyInstance, { ctx }: { ctx: Ctx }
         id: f.id, nome: f.name, percorso: f.rel_path, dimensione: f.size_bytes, aggiunto: f.created_at,
         caricatoDa: f.uploader, download: byFile.has(f.id) ? transferView(ctx, byFile.get(f.id)!) : null,
       })),
-      sogliaApprovazione: getSettings(db).download_approval_threshold,
       banda: getUsage(db, u.id),
     };
   });
@@ -93,26 +96,20 @@ export async function transferRoutes(app: FastifyInstance, { ctx }: { ctx: Ctx }
 
   /**
    * Il link firmato. Non serve la sessione: lo usano anche i programmi per i download.
-   * In produzione risponde nginx (X-Accel-Redirect): ripresa con Range e limite di velocità.
+   * Ripresa dei download interrotti con Range (la gestisce @fastify/send).
    */
   app.get<{ Params: { id: string; exp: string; sig: string; name: string } }>(
     '/api/download/:id/:exp/:sig/:name',
     async (req, reply) => {
       const { transfer, relPath } = checkDownload(ctx, Number(req.params.id), req.params.exp, req.params.sig);
       const disposition = `attachment; filename*=UTF-8''${encodeURIComponent(transfer.name)}`;
-      if (config.downloadMode === 'accel') {
-        const rate = downloadRateBytes(getLimits(db, transfer.user_id), getUsage(db, transfer.user_id), getSettings(db));
-        const internal = config.accelPrefix + relPath.split('/').map(encodeURIComponent).join('/');
-        return reply
-          .header('X-Accel-Redirect', internal)
-          .header('X-Accel-Limit-Rate', rate > 0 ? String(rate) : 'off')
-          .header('Content-Disposition', disposition)
-          .header('Content-Type', 'application/octet-stream')
-          .send('');
-      }
       safeJoin(config.sharedPath, relPath);
-      reply.header('Content-Disposition', disposition);
-      return reply.sendFile(relPath.split('/').join(path.sep), config.sharedPath, { contentType: false });
+      const r = await send(req.raw, '/' + relPath.split('/').map(encodeURIComponent).join('/'), { root: config.sharedPath });
+      if (r.type === 'directory') throw new HttpError(404, 'File non trovato');
+      reply.code(r.statusCode).headers(r.headers);
+      if (r.type === 'error') return reply.send(r.stream); // es. 416: intervallo richiesto fuori dal file
+      reply.header('Content-Disposition', disposition).header('Content-Type', 'application/octet-stream');
+      return reply.send(r.stream);
     },
   );
 

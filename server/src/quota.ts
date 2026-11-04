@@ -5,7 +5,7 @@
  * I periodi seguono il fuso orario del server (variabile TZ, es. Europe/Rome).
  */
 import type { DB } from './db/index.js';
-import type { Period, Settings } from './db/settings.js';
+import type { Period } from './db/settings.js';
 
 export function periodStart(period: Period, now = new Date()): Date {
   const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -25,15 +25,12 @@ export function periodEnd(period: Period, now = new Date()): Date {
 export interface Limits {
   quota_bytes: number;
   period: Period;
-  max_speed_kbps: number;
-  max_concurrent: number;
-  approval: 'never' | 'over_threshold' | 'always';
   can_upload: boolean;
 }
 
 export function getLimits(db: DB, userId: number): Limits {
   const l = db
-    .prepare('SELECT quota_bytes, period, max_speed_kbps, max_concurrent, approval, can_upload FROM user_limits WHERE user_id = ?')
+    .prepare('SELECT quota_bytes, period, can_upload FROM user_limits WHERE user_id = ?')
     .get(userId) as (Omit<Limits, 'can_upload'> & { can_upload: number }) | undefined;
   if (!l) throw new Error(`Limiti mancanti per l'utente ${userId}`);
   return { ...l, can_upload: l.can_upload === 1 };
@@ -73,45 +70,9 @@ export function getUsage(db: DB, userId: number, now = new Date()): Usage {
   };
 }
 
-export type Decision =
-  | { outcome: 'approved' }
-  | { outcome: 'pending'; reason: 'over_threshold' | 'always' | 'over_quota' };
+export type Decision = { outcome: 'approved' } | { outcome: 'pending'; reason: 'over_quota' };
 
-/** Decide se un nuovo trasferimento parte subito o va in approvazione. */
-export function decide(kind: 'upload' | 'download', size: number, limits: Limits, usage: Usage, s: Settings): Decision {
-  if (usage.used + size > usage.quota && s.block_on_quota_exhausted) return { outcome: 'pending', reason: 'over_quota' };
-  if (limits.approval === 'always') return { outcome: 'pending', reason: 'always' };
-  const threshold = kind === 'upload' ? s.upload_approval_threshold : s.download_approval_threshold;
-  if (limits.approval === 'over_threshold' && s.require_approval_over_threshold && size > threshold) {
-    return { outcome: 'pending', reason: 'over_threshold' };
-  }
-  return { outcome: 'approved' };
-}
-
-function minutes(hhmm: string) {
-  const [h, m] = hhmm.split(':').map(Number);
-  return h * 60 + m;
-}
-
-export function inNightWindow(s: Settings, now = new Date()): boolean {
-  if (!s.night_window) return false;
-  const t = now.getHours() * 60 + now.getMinutes();
-  const a = minutes(s.night_window.start), b = minutes(s.night_window.end);
-  return a <= b ? t >= a && t < b : t >= a || t < b;
-}
-
-const SLOWDOWN_KBPS = 10_000; // 10 Mbps oltre l'80% della quota
-
-/**
- * Velocità per un download, in byte al secondo; 0 = nessun limite.
- * max_speed_kbps = 0 vuol dire "nessun limite" per la persona; la fascia notturna toglie ogni limite;
- * il rallentamento oltre l'80% vale anche per chi non ha limite.
- */
-export function downloadRateBytes(limits: Limits, usage: Usage, s: Settings, now = new Date()): number {
-  if (inNightWindow(s, now)) return 0;
-  let kbps = limits.max_speed_kbps; // 0 = nessun limite
-  if (s.slowdown_over_80 && usage.quota > 0 && usage.used > usage.quota * 0.8) {
-    kbps = kbps === 0 ? SLOWDOWN_KBPS : Math.min(kbps, SLOWDOWN_KBPS);
-  }
-  return Math.floor((kbps * 1000) / 8);
+/** Unica regola: se la richiesta sta nella quota rimasta parte subito, altrimenti va in approvazione. */
+export function decide(size: number, usage: Usage): Decision {
+  return usage.used + size > usage.quota ? { outcome: 'pending', reason: 'over_quota' } : { outcome: 'approved' };
 }

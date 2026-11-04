@@ -1,10 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { api, type Approval, type Period, type UtenteAdmin } from '../api';
-import { bytes, fa, fieldToKbps, GB, periodoQuesto, speedToField } from '../format';
+import { api, type Period, type UtenteAdmin } from '../api';
+import { bytes, fa, GB, periodoQuesto } from '../format';
 import { useLive } from '../live';
 import { useSession } from '../session';
 import { useData } from '../useData';
-import { Avatar, Badge, BandBar, PageHeader, SimpleBar, statoBadge, Toggle } from '../ui';
+import { Avatar, Badge, BandBar, PageHeader, SimpleBar, statoBadge, SvuotaStorico, Toggle } from '../ui';
 
 type Tab = 'tutti' | 'attivi' | 'bloccati' | 'sospesi';
 
@@ -16,19 +16,14 @@ function statoUtente(s: string) {
 }
 
 interface LimitForm {
-  quotaGb: string; periodo: Period; velocitaMbps: string; simultanei: string; approvazione: Approval; ruolo: 'user' | 'admin';
-  permettiUpload: boolean;
+  quotaGb: string; periodo: Period; ruolo: 'user' | 'admin'; permettiUpload: boolean;
 }
 const toLimitForm = (u: UtenteAdmin): LimitForm => ({
-  quotaGb: String(Math.round(u.limiti.quota / GB)), periodo: u.limiti.periodo, velocitaMbps: speedToField(u.limiti.velocitaKbps),
-  simultanei: String(u.limiti.simultanei), approvazione: u.limiti.approvazione, ruolo: u.ruolo, permettiUpload: u.limiti.permettiUpload,
+  quotaGb: String(Math.round(u.limiti.quota / GB)), periodo: u.limiti.periodo, ruolo: u.ruolo, permettiUpload: u.limiti.permettiUpload,
 });
 const limitiDa = (f: LimitForm) => ({
   quota: Math.max(0, Math.round(Number(f.quotaGb.replace(',', '.')) * GB)),
   periodo: f.periodo,
-  velocitaKbps: fieldToKbps(f.velocitaMbps), // vuoto o 0 = nessun limite
-  simultanei: Math.max(1, Math.round(Number(f.simultanei) || 1)),
-  approvazione: f.approvazione,
   permettiUpload: f.permettiUpload,
 });
 
@@ -48,33 +43,15 @@ function LimitFields({ f, set }: { f: LimitForm; set: (f: LimitForm) => void }) 
           </select>
         </label>
       </div>
-      <div className="row" style={{ gap: 12 }}>
-        <label className="field"><span>Velocità massima</span>
-          <div style={{ position: 'relative' }}>
-            <input className="input" inputMode="decimal" placeholder="Nessun limite" value={f.velocitaMbps} onChange={(e) => set({ ...f, velocitaMbps: e.target.value })} style={{ paddingRight: 56 }} />
-            <span className="t-body c-muted" style={{ position: 'absolute', right: 12, top: 11 }}>Mbps</span>
-          </div>
-        </label>
-        <label className="field"><span>Trasferimenti simultanei</span>
-          <input className="input" inputMode="numeric" value={f.simultanei} onChange={(e) => set({ ...f, simultanei: e.target.value })} />
-        </label>
-      </div>
-      <div className="row" style={{ gap: 12 }}>
-        <label className="field"><span>Approvazione</span>
-          <select className="input" value={f.approvazione} onChange={(e) => set({ ...f, approvazione: e.target.value as Approval })}>
-            <option value="never">Mai</option><option value="over_threshold">Oltre soglia</option><option value="always">Sempre</option>
-          </select>
-        </label>
-        <label className="field"><span>Ruolo</span>
-          <select className="input" value={f.ruolo} onChange={(e) => set({ ...f, ruolo: e.target.value as 'user' | 'admin' })}>
-            <option value="user">Utente</option><option value="admin">Amministratore</option>
-          </select>
-        </label>
-      </div>
+      <label className="field"><span>Ruolo</span>
+        <select className="input" value={f.ruolo} onChange={(e) => set({ ...f, ruolo: e.target.value as 'user' | 'admin' })}>
+          <option value="user">Utente</option><option value="admin">Amministratore</option>
+        </select>
+      </label>
       <div className="between" style={{ padding: '4px 0' }}>
         <div className="stack-sm" style={{ gap: 2 }}>
           <span className="t-label">Permetti upload</span>
-          <span className="t-caption c-muted">{f.permettiUpload ? 'Può caricare file nella cartella condivisa' : 'Può solo scaricare'}</span>
+          <span className="t-caption c-muted">{f.permettiUpload ? "Può caricare file nell'archivio" : 'Può solo scaricare'}</span>
         </div>
         <Toggle checked={f.permettiUpload} onChange={(v) => set({ ...f, permettiUpload: v })} label="Permetti upload" />
       </div>
@@ -128,7 +105,10 @@ function Dettaglio({ id, onSaved }: { id: number; onSaved: () => void }) {
         </div>
         <BandBar banda={d.banda} restano={false} />
       </div>
-      <h3 className="t-heading">Ultimi trasferimenti</h3>
+      <div className="between">
+        <h3 className="t-heading">Ultimi trasferimenti</h3>
+        <SvuotaStorico di={d.nome} onSvuota={() => api.svuotaStoricoUtente(id)} onDone={u.reload} />
+      </div>
       <div className="stack-sm" style={{ gap: 10 }}>
         {(d.ultimiTrasferimenti ?? []).length === 0 && <span className="t-caption c-muted">Nessun trasferimento.</span>}
         {(d.ultimiTrasferimenti ?? []).map((t) => (
@@ -161,9 +141,7 @@ function NuovoUtente({ onClose, onCreated }: { onClose: () => void; onCreated: (
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
     if (def.data) setF({
-      quotaGb: String(Math.round(def.data.quota / GB)), periodo: def.data.periodo,
-      velocitaMbps: speedToField(def.data.velocitaKbps), simultanei: String(def.data.simultanei),
-      approvazione: 'over_threshold', ruolo: 'user', permettiUpload: true,
+      quotaGb: String(Math.round(def.data.quota / GB)), periodo: def.data.periodo, ruolo: 'user', permettiUpload: true,
     });
   }, [def.data]);
 

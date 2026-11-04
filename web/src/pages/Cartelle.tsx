@@ -103,7 +103,7 @@ export function Cartelle() {
                   <td>
                     <label className="inline" style={{ gap: 8, cursor: 'pointer' }}>
                       <input type="radio" name="upload" checked={isUpload} onChange={() => chooseUpload(c.percorso)} />
-                      {isUpload && <span className="inline t-caption" style={{ color: 'var(--accent-primary)' }}><Upload size={14} /> qui</span>}
+                      {isUpload && <span className="inline t-caption" style={{ color: 'var(--accent-primary)' }}><Upload size={14} /></span>}
                     </label>
                   </td>
                 </tr>

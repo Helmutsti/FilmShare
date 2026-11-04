@@ -1,9 +1,8 @@
 # FilmShare
 
 Scambio di film e file pesanti tra amici. Ogni persona ha una **quota unica** (upload + download insieme)
-in un periodo scelto dall'admin (giorno, settimana da lunedì, mese). L'admin crea gli utenti, imposta le regole
-di ognuno (quota, periodo, velocità, simultanei, approvazione, "Permetti upload") e approva le richieste
-oltre soglia o oltre quota. Non ci sono regole globali da impostare; c'è solo l'interruttore
+in un periodo scelto dall'admin (giorno, settimana da lunedì, mese). L'admin crea gli utenti, imposta per ognuno
+quota, periodo e "Permetti upload", e approva le richieste oltre la quota. Non ci sono regole globali da impostare; c'è solo l'interruttore
 **Sospendi trasferimenti** (pagina Utenti), che ferma ogni upload e download per tutti.
 Disegni: https://www.figma.com/design/DSXFok6tsIbfbtBWXjt99O
 
@@ -13,8 +12,7 @@ Disegni: https://www.figma.com/design/DSXFok6tsIbfbtBWXjt99O
 | `server/` | Fastify (Node, TypeScript): accesso, quote, approvazioni, upload tus, link di download firmati, SSE, notifiche push |
 | `server/migrations/` | Struttura del database SQLite, file `NNN_nome.sql` applicati in ordine all'avvio |
 | `web/` | Dashboard React + Vite; upload a pezzi con `tus-js-client` |
-| `deploy/nginx.conf` | nginx: serve la dashboard, inoltra `/api`, manda i download dal NAS con ripresa e limite di velocità |
-| `Dockerfile`, `compose.yaml` | Due immagini dallo stesso Dockerfile: `app` (Node) e `web` (nginx) |
+| `Dockerfile`, `compose.yaml` | Una sola immagine: il server Node risponde alle API, serve la dashboard compilata e manda i download |
 
 ## Installazione con Docker (server di casa)
 1. Monta la cartella del NAS sul server, via NFS. Esempio in `/etc/fstab`:
@@ -50,7 +48,7 @@ npm run dev              # server su :3000, dashboard su http://localhost:5173
 npm run typecheck
 npm test
 ```
-In sviluppo i download li manda il server Node (`DOWNLOAD_MODE=direct`); in Docker li manda nginx (`accel`).
+In sviluppo la dashboard la serve Vite (:5173); in Docker la serve il server stesso, dalla cartella `web/dist`.
 
 ## Creare un amministratore: `crea-admin`
 L'accesso a FilmShare è solo con un account creato dall'amministratore; il primo si crea da riga di comando.
@@ -75,14 +73,14 @@ npm run crea-admin -- mario@example.com --reimposta              # password dime
 
 Note:
 - Usa il database di `DB_PATH`: lancialo sul server dove gira FilmShare.
-- L'admin creato riceve i limiti predefiniti delle regole globali e non ha bisogno di approvazioni.
+- L'admin creato riceve la quota proposta per le persone nuove (400 GB a settimana).
 - La password è salvata solo come impronta (scrypt): non si può rileggere, solo reimpostare.
 - `--password` sulla riga di comando resta nella cronologia della shell: meglio lasciarla generare.
 
 ## Come funziona la quota
 - Prima di un upload o di un download si **prenota** tutta la dimensione del file nel periodo corrente della persona.
 - Riprese e nuovi tentativi non contano due volte; se il trasferimento viene annullato, rifiutato o il link scade senza essere usato, la prenotazione torna disponibile.
-- Con approvazione "Oltre soglia", i file sopra 10 GB (upload) o 50 GB (download) vanno in **Approvazioni**; con "Sempre" ci vanno tutti, con "Mai" nessuno.
-- Oltre la quota rimasta la richiesta va comunque in **Approvazioni**: l'admin può approvarla come eccezione senza cambiare i limiti della persona.
-- Velocità massima vuota o 0 = nessun limite. "Permetti upload" spento = la persona può solo scaricare.
-- Le soglie (10 GB / 50 GB), la scadenza dei link (48 ore) e i valori proposti per un nuovo utente (400 GB a settimana, 50 Mbps, 2 simultanei) sono fissi, nella tabella `settings` del database.
+- È l'unico limite: finché la richiesta sta nella quota rimasta parte subito, qualunque sia la dimensione del file.
+- Oltre la quota rimasta la richiesta va in **Approvazioni**: l'admin può approvarla come eccezione senza cambiare la quota della persona. Vale anche per gli admin.
+- Nessun limite di velocità né di trasferimenti contemporanei. "Permetti upload" spento = la persona può solo scaricare.
+- La scadenza dei link (48 ore) e la quota proposta per una persona nuova (400 GB a settimana) sono fisse, nella tabella `settings` del database.

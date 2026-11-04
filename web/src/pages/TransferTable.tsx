@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { Pause, Play, X } from 'lucide-react';
 import type { Trasferimento } from '../api';
 import { bytes, dataBreve, fa, ora } from '../format';
 import { cancelUpload, pause, resume, syncWithServer, useUploads, type LocalUpload } from '../uploads';
@@ -18,14 +19,18 @@ function avanzamento(t: Trasferimento, local?: LocalUpload): { value: number; te
     case 'pending': return { value: 0, text: t.tipo === 'upload' ? `In coda: ${motivoTesto[t.motivo ?? ''] ?? 'serve approvazione'}` : 'In attesa dell\'amministratore' };
     case 'approved': return { value: 0, text: t.tipo === 'upload' ? 'Approvato: trascina di nuovo il file per caricarlo' : `Link valido fino al ${dataBreve(t.linkScade!)}` };
     case 'in_progress': return { value: 0, text: 'Interrotto: trascina di nuovo il file per riprendere', tone: 'accent' };
-    case 'completed': return { value: t.dimensione, text: t.tipo === 'upload' ? 'Pubblicato nella cartella condivisa' : `Link valido fino al ${dataBreve(t.linkScade!)}`, tone: 'ok' };
+    case 'completed': return { value: t.dimensione, text: t.tipo === 'upload' ? "Pubblicato nell'archivio" : `Link valido fino al ${dataBreve(t.linkScade!)}`, tone: 'ok' };
     case 'rejected': return { value: 0, text: t.motivo && !motivoTesto[t.motivo] ? t.motivo : 'Rifiutato dall\'amministratore', tone: 'danger' };
     case 'cancelled': return { value: 0, text: 'Annullato' };
     case 'expired': return { value: 0, text: 'Link scaduto' };
   }
 }
 
-export function TransferTable({ rows, empty }: { rows: Trasferimento[]; empty: string }) {
+/**
+ * Elenco dei trasferimenti. "ridotta": tre colonne (file, stato e avanzamento, azioni), per stare
+ * accanto al box di upload; la dimensione va sotto il nome.
+ */
+export function TransferTable({ rows, empty, ridotta = false }: { rows: Trasferimento[]; empty: string; ridotta?: boolean }) {
   const local = useUploads();
   useEffect(() => syncWithServer(rows), [rows]);
 
@@ -33,13 +38,24 @@ export function TransferTable({ rows, empty }: { rows: Trasferimento[]; empty: s
   return (
     <table className="table">
       <thead>
-        <tr><th>File</th><th style={{ width: 110 }}>Dimensione</th><th style={{ width: 240 }}>Avanzamento</th><th style={{ width: 210 }}>Stato</th><th style={{ width: 100 }} /></tr>
+        {ridotta
+          ? <tr><th>File</th><th style={{ width: 220 }}>Stato e avanzamento</th><th className="col-azioni" /></tr>
+          : <tr><th>File</th><th style={{ width: 110 }}>Dimensione</th><th style={{ width: 240 }}>Avanzamento</th><th style={{ width: 210 }}>Stato</th><th className="col-azioni" /></tr>}
       </thead>
       <tbody>
         {rows.map((t) => {
           const l = local.get(t.id);
           const a = avanzamento(t, l);
           const active = ['pending', 'approved', 'in_progress'].includes(t.stato);
+          const quando = fa(t.creato) === 'adesso' ? `alle ${ora(t.creato)}` : fa(t.creato);
+          const tipo = t.tipo === 'upload' ? 'Upload' : 'Download';
+          const stato = l?.state === 'uploading' ? statoBadge({ stato: 'in_progress', tipo: t.tipo }) : statoBadge(t);
+          const barra = (
+            <div className="stack-sm" style={{ gap: 6 }}>
+              <SimpleBar value={a.value} max={t.dimensione || 1} tone={a.tone ?? 'accent'} />
+              <span className={`t-caption ${a.tone === 'danger' ? 'c-danger' : 'c-muted'}`}>{a.text}</span>
+            </div>
+          );
           return (
             <tr key={t.id}>
               <td>
@@ -47,25 +63,28 @@ export function TransferTable({ rows, empty }: { rows: Trasferimento[]; empty: s
                   <FileIcon />
                   <div className="stack-sm" style={{ gap: 2, minWidth: 0 }}>
                     <span className="t-strong truncate">{t.nome}</span>
-                    <span className="t-caption c-muted">{t.tipo === 'upload' ? 'Upload' : 'Download'} · {fa(t.creato) === 'adesso' ? `alle ${ora(t.creato)}` : fa(t.creato)}</span>
+                    <span className="t-caption c-muted">{ridotta ? `${bytes(t.dimensione)} · ${tipo} · ${quando}` : `${tipo} · ${quando}`}</span>
                   </div>
                 </div>
               </td>
-              <td>{bytes(t.dimensione)}</td>
-              <td>
-                <div className="stack-sm" style={{ gap: 6 }}>
-                  <SimpleBar value={a.value} max={t.dimensione || 1} tone={a.tone ?? 'accent'} />
-                  <span className={`t-caption ${a.tone === 'danger' ? 'c-danger' : 'c-muted'}`}>{a.text}</span>
+              {ridotta ? (
+                <td><div className="stack-sm" style={{ gap: 8, alignItems: 'flex-start' }}>{stato}<div style={{ alignSelf: 'stretch' }}>{barra}</div></div></td>
+              ) : (
+                <>
+                  <td>{bytes(t.dimensione)}</td>
+                  <td>{barra}</td>
+                  <td>{stato}</td>
+                </>
+              )}
+              <td className="col-azioni">
+                <div className="inline" style={{ gap: 4 }}>
+                  {l?.state === 'uploading' && <button className="btn btn-ghost btn-sm btn-icon" onClick={() => pause(t.id)} aria-label={`Metti in pausa ${t.nome}`} title="Pausa"><Pause size={16} /></button>}
+                  {(l?.state === 'paused' || l?.state === 'error') && <button className="btn btn-ghost btn-sm btn-icon" onClick={() => resume(t.id)} aria-label={`Riprendi ${t.nome}`} title="Riprendi"><Play size={16} /></button>}
+                  {active && !l?.state.match(/uploading/) && t.tipo === 'upload' && (
+                    <button className="btn btn-ghost btn-sm btn-icon" onClick={() => cancelUpload(t.id)} aria-label={`Annulla ${t.nome}`} title="Annulla"><X size={16} /></button>
+                  )}
+                  {t.tipo === 'download' && t.link && t.stato !== 'expired' && <a className="btn btn-ghost btn-sm" href={t.link}>Scarica</a>}
                 </div>
-              </td>
-              <td>{l?.state === 'uploading' ? statoBadge({ stato: 'in_progress', tipo: t.tipo }) : statoBadge(t)}</td>
-              <td style={{ textAlign: 'right' }}>
-                {l?.state === 'uploading' && <button className="btn btn-ghost btn-sm" onClick={() => pause(t.id)}>Pausa</button>}
-                {(l?.state === 'paused' || l?.state === 'error') && <button className="btn btn-ghost btn-sm" onClick={() => resume(t.id)}>Riprendi</button>}
-                {active && !l?.state.match(/uploading/) && t.tipo === 'upload' && (
-                  <button className="btn btn-ghost btn-sm" onClick={() => cancelUpload(t.id)}>Annulla</button>
-                )}
-                {t.tipo === 'download' && t.link && t.stato !== 'expired' && <a className="btn btn-ghost btn-sm" href={t.link}>Scarica</a>}
               </td>
             </tr>
           );

@@ -44,12 +44,4 @@ export function iniziali(nome: string) {
   return nome.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]!.toUpperCase()).join('') || '?';
 }
 
-/** Velocità nei campi: Mbps per chi legge, kbps per il server. Vuoto o 0 = nessun limite (0 sul server). */
-export const speedToField = (kbps: number) => (kbps > 0 ? String(kbps / 1000).replace('.', ',') : '');
-export function fieldToKbps(s: string): number {
-  const n = Number(s.trim().replace(',', '.'));
-  return Number.isFinite(n) && n > 0 ? Math.round(n * 1000) : 0;
-}
-export const speedText = (kbps: number) => (kbps > 0 ? `${(kbps / 1000).toLocaleString('it-IT')} Mbps` : 'Nessun limite');
-
 export const percent =(part: number, whole: number) => (whole > 0 ? Math.min(100, (part / whole) * 100) : 0);

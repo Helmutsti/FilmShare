@@ -114,7 +114,7 @@ export function Approvazioni() {
         )}
       </section>
       <p className="inline t-caption c-muted" style={{ margin: 0 }}>
-        <Info size={16} /> Ogni utente ha una quota che somma upload e download nel suo periodo. Sotto soglia e con quota sufficiente l'approvazione è automatica. Le eccezioni approvate non cambiano i limiti dell'utente.
+        <Info size={16} /> Ogni utente ha una quota che somma upload e download nel suo periodo. Finché resta nella quota tutto parte subito; qui arrivano solo le richieste oltre la quota. Approvarle non cambia la quota dell'utente.
       </p>
     </>
   );

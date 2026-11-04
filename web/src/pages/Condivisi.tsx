@@ -1,15 +1,13 @@
 import { useMemo, useState } from 'react';
 import { AlertCircle, Folder, Info, Search } from 'lucide-react';
-import { api, type Approval, type FileCondiviso } from '../api';
+import { api, type FileCondiviso } from '../api';
 import { bytes, dataBreve, fa, periodoQuesto } from '../format';
 import { useLive } from '../live';
 import { useSession } from '../session';
 import { useData } from '../useData';
 import { Avatar, Badge, FileIcon, PageHeader } from '../ui';
 
-function DownloadCell({ f, onChange, remaining, soglia, approval }: {
-  f: FileCondiviso; onChange: () => void; remaining: number; soglia: number; approval: Approval;
-}) {
+function DownloadCell({ f, onChange, remaining }: { f: FileCondiviso; onChange: () => void; remaining: number }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const d = f.download;
@@ -36,17 +34,13 @@ function DownloadCell({ f, onChange, remaining, soglia, approval }: {
     return <><a className="btn btn-primary btn-sm" href={d.link}>Scarica</a><div className="t-caption c-muted">Approvato · link valido fino al {dataBreve(d.linkScade!)}</div></>;
   }
   const overQuota = f.dimensione > remaining;
-  const overThreshold = approval === 'always' || (approval === 'over_threshold' && f.dimensione > soglia);
-  const needsApproval = overQuota || overThreshold;
   return (
     <>
-      <button className={`btn btn-sm ${needsApproval ? 'btn-secondary' : 'btn-primary'}`} disabled={busy} onClick={ask}>
-        {needsApproval ? 'Richiedi download' : 'Scarica'}
+      <button className={`btn btn-sm ${overQuota ? 'btn-secondary' : 'btn-primary'}`} disabled={busy} onClick={ask}>
+        {overQuota ? 'Richiedi download' : 'Scarica'}
       </button>
       <div className={`t-caption ${err ? 'c-danger' : 'c-muted'}`}>
-        {err ?? (overQuota ? `Oltre la banda rimasta (${bytes(remaining)})`
-          : approval === 'always' ? 'Serve approvazione'
-          : needsApproval ? `Oltre ${bytes(soglia)} serve approvazione` : 'Parte subito')}
+        {err ?? (overQuota ? `Oltre la banda rimasta (${bytes(remaining)}): serve approvazione` : 'Parte subito')}
       </div>
     </>
   );
@@ -69,8 +63,8 @@ export function Condivisi() {
   return (
     <>
       <PageHeader
-        title="Cartella condivisa"
-        subtitle="È l'unica cartella del server da cui puoi scaricare. I file molto pesanti possono richiedere l'approvazione dell'amministratore."
+        title="Archivio"
+        subtitle="Qui trovi i file che puoi scaricare. Se un file supera la banda che ti resta, serve l'approvazione dell'amministratore."
         actions={
           <label className="inline" style={{ position: 'relative' }}>
             <Search size={16} style={{ position: 'absolute', left: 12, color: 'var(--text-muted)' }} aria-hidden />
@@ -90,7 +84,7 @@ export function Condivisi() {
             <div className="t-strong">Hai usato il {usedPct}% della tua banda {periodoQuesto[banda.period].replace('di ', '')} ({bytes(banda.used)} di {bytes(banda.quota)})</div>
             <div className="t-caption c-secondary">
               Upload e download contano insieme. Si azzera {new Date(banda.resetAt).toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' })}.
-              {' '}I file sopra {bytes(files.data?.sogliaApprovazione ?? 0)} richiedono approvazione.
+              {' '}Oltre la banda rimasta serve l'approvazione dell'amministratore.
             </div>
           </div>
         </div>
@@ -98,7 +92,7 @@ export function Condivisi() {
 
       <section className="card flush">
         {files.error && <div className="empty c-danger">{files.error}</div>}
-        {!files.error && list.length === 0 && <div className="empty">{files.data ? 'Nessun file nella cartella condivisa.' : 'Carico…'}</div>}
+        {!files.error && list.length === 0 && <div className="empty">{files.data ? "Nessun file nell'archivio." : 'Carico…'}</div>}
         {list.length > 0 && (
           <table className="table">
             <thead><tr><th>Nome</th><th style={{ width: 110 }}>Dimensione</th><th style={{ width: 170 }}>Caricato da</th><th style={{ width: 110 }}>Aggiunto</th><th style={{ width: 230 }}>Download</th></tr></thead>
@@ -117,7 +111,7 @@ export function Condivisi() {
                   <td>{bytes(f.dimensione)}</td>
                   <td>{f.caricatoDa ? <span className="inline"><Avatar nome={f.caricatoDa} />{f.caricatoDa}</span> : <span className="c-muted">Sul NAS</span>}</td>
                   <td title={fa(f.aggiunto)}>{dataBreve(f.aggiunto)}</td>
-                  <td><div className="stack-sm" style={{ gap: 6, alignItems: 'flex-start' }}><DownloadCell f={f} onChange={files.reload} remaining={banda.remaining} soglia={files.data!.sogliaApprovazione} approval={io.limiti.approval} /></div></td>
+                  <td><div className="stack-sm" style={{ gap: 6, alignItems: 'flex-start' }}><DownloadCell f={f} onChange={files.reload} remaining={banda.remaining} /></div></td>
                 </tr>
               ))}
             </tbody>

@@ -19,7 +19,7 @@ export interface LocalUpload {
   tus?: Upload;
 }
 
-const CHUNK = 64 * 1024 * 1024; // deve stare sotto client_max_body_size di nginx
+const CHUNK = 64 * 1024 * 1024; // pezzi da 64 MB: se davanti c'è un reverse proxy, deve accettare richieste di questa dimensione
 
 let items = new Map<number, LocalUpload>();
 const subs = new Set<() => void>();

@@ -38,13 +38,13 @@ export function Layout() {
       <aside className="sidebar">
         <nav aria-label="Menu principale">
           <div className="brand">
-            <span className="brand-logo"><Play size={14} fill="#fff" color="#fff" /></span>
+            <span className="brand-logo"><Play size={14} fill="var(--text-on-accent)" color="var(--text-on-accent)" /></span>
             <span className="t-heading">FilmShare</span>
           </div>
           <div className="nav-group">
             <span className="t-overline">Spazio personale</span>
             <Item to="/carica" label="Carica file" />
-            <Item to="/condivisi" label="Cartella condivisa" />
+            <Item to="/condivisi" label="Archivio" />
             <Item to="/trasferimenti" label="I miei trasferimenti" />
           </div>
           {admin && <AdminNav />}

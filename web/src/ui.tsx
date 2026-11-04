@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Film } from 'lucide-react';
 import type { Banda, Trasferimento } from './api';
 import { bytes, dataLunga, iniziali, ora, percent, periodoQuesto } from './format';
@@ -20,9 +20,7 @@ export function statoBadge(t: Pick<Trasferimento, 'stato' | 'tipo'>) {
 }
 
 export const motivoTesto: Record<string, string> = {
-  over_threshold: 'oltre la soglia, serve approvazione',
   over_quota: 'oltre la banda rimasta',
-  always: 'approvazione sempre richiesta',
 };
 
 export function Avatar({ nome, large }: { nome: string; large?: boolean }) {
@@ -103,5 +101,49 @@ export function PageHeader({ title, subtitle, actions }: { title: string; subtit
       </div>
       {actions && <div className="inline" style={{ gap: 12 }}>{actions}</div>}
     </header>
+  );
+}
+
+/**
+ * Pulsante "Svuota storico" con finestra di conferma: nasconde i trasferimenti finiti.
+ * Quelli in attesa o in corso restano; la quota del periodo non cambia.
+ */
+export function SvuotaStorico({ di, onDone, onSvuota }: { di?: string; onDone: () => void; onSvuota: () => Promise<unknown> }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  async function conferma() {
+    setBusy(true);
+    setErr(null);
+    try {
+      await onSvuota();
+      setOpen(false);
+      onDone();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <>
+      <button type="button" className="btn btn-ghost btn-sm" onClick={() => setOpen(true)}>Svuota storico</button>
+      {open && (
+        <div className="modal-back" onClick={() => !busy && setOpen(false)}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Svuota storico" onClick={(e) => e.stopPropagation()}>
+            <h2 className="t-title">Svuotare lo storico{di ? ` di ${di}` : ''}?</h2>
+            <p className="t-body c-secondary" style={{ margin: 0 }}>
+              Spariscono dall'elenco i trasferimenti finiti (completati, rifiutati, annullati, scaduti).
+              Quelli in attesa o in corso restano. La banda già usata non cambia.
+            </p>
+            {err && <p className="error-text" role="alert" style={{ margin: 0 }}>{err}</p>}
+            <div className="inline" style={{ justifyContent: 'flex-end' }}>
+              <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setOpen(false)}>Annulla</button>
+              <button type="button" className="btn btn-danger" disabled={busy} onClick={conferma}>Svuota storico</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

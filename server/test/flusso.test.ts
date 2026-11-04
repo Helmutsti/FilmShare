@@ -129,33 +129,41 @@ test('download: link firmato, ripresa con Range, nessuna doppia prenotazione', a
   assert.equal(io.banda.download, 1500);
 });
 
-test('oltre soglia va in approvazione; approvata prenota; annullata restituisce', async () => {
+test('oltre la quota va in approvazione; approvata prenota; annullata restituisce', async () => {
+  // Marco ha 20 GB a settimana: un file da 15 GB sta nella quota e parte subito, nessuna soglia.
+  const fits = (await app.inject({
+    method: 'POST', url: '/api/upload/richieste', headers: { cookie: userCookie },
+    payload: { nome: 'Medio.mkv', dimensione: 15 * GB },
+  })).json();
+  assert.equal(fits.stato, 'approved');
+  await app.inject({ method: 'DELETE', url: `/api/trasferimenti/${fits.id}`, headers: { cookie: userCookie } });
+
   const big = (await app.inject({
     method: 'POST', url: '/api/upload/richieste', headers: { cookie: userCookie },
-    payload: { nome: 'Grande.mkv', dimensione: 15 * GB },
+    payload: { nome: 'Grande.mkv', dimensione: 25 * GB },
   })).json();
   assert.equal(big.stato, 'pending');
-  assert.equal(big.motivo, 'over_threshold');
+  assert.equal(big.motivo, 'over_quota');
 
   // Non si può caricare finché non è approvata.
   const early = await tusFetch('/api/upload/tus', 'POST', {
-    cookie: userCookie, 'upload-length': String(15 * GB), 'upload-metadata': `transferId ${b64(String(big.id))}`,
+    cookie: userCookie, 'upload-length': String(25 * GB), 'upload-metadata': `transferId ${b64(String(big.id))}`,
   });
   assert.equal(early.status, 403);
 
   const pend = (await app.inject({ method: 'GET', url: '/api/admin/richieste', headers: { cookie: adminCookie } })).json();
   assert.equal(pend.length, 1);
-  assert.equal(pend[0].impatto.percentuale, 75);
+  assert.equal(pend[0].impatto.percentuale, 125);
 
   const ok = await app.inject({ method: 'POST', url: `/api/admin/richieste/${big.id}/approva`, headers: { cookie: adminCookie } });
   assert.equal(ok.json().stato, 'approved');
   let io = (await app.inject({ method: 'GET', url: '/api/io', headers: { cookie: userCookie } })).json();
-  assert.equal(io.banda.inProgress, 15 * GB);
+  assert.equal(io.banda.inProgress, 25 * GB);
 
-  // Oltre la quota residua (5 GB circa): va in approvazione come eccezione.
+  // La quota è già superata dall'eccezione approvata: anche un file piccolo va in approvazione.
   const over = (await app.inject({
     method: 'POST', url: '/api/upload/richieste', headers: { cookie: userCookie },
-    payload: { nome: 'Troppo.mkv', dimensione: 6 * GB },
+    payload: { nome: 'Troppo.mkv', dimensione: 1 * GB },
   })).json();
   assert.equal(over.stato, 'pending');
   assert.equal(over.motivo, 'over_quota');
@@ -168,16 +176,23 @@ test('oltre soglia va in approvazione; approvata prenota; annullata restituisce'
   assert.equal(n.approvate, 1, 'ora la quota basta');
 });
 
-test("l'admin cambia quota, periodo e velocità (0 = nessun limite); sospensione chiude le sessioni", async () => {
+test("l'admin cambia quota e periodo; non esistono altri limiti; sospensione chiude le sessioni", async () => {
   const r = await app.inject({
     method: 'PATCH', url: `/api/admin/utenti/${userId}`, headers: { cookie: adminCookie },
-    payload: { limiti: { quota: 100 * GB, periodo: 'month', velocitaKbps: 0 } },
+    payload: { limiti: { quota: 100 * GB, periodo: 'month' } },
   });
   assert.equal(r.statusCode, 200, r.body);
   assert.equal(r.json().limiti.periodo, 'month');
-  assert.equal(r.json().limiti.velocitaKbps, 0);
+  assert.deepEqual(Object.keys(r.json().limiti).sort(), ['periodo', 'permettiUpload', 'quota']);
+  for (const tolto of [{ velocitaKbps: 0 }, { simultanei: 2 }, { approvazione: 'always' }]) {
+    const old = await app.inject({
+      method: 'PATCH', url: `/api/admin/utenti/${userId}`, headers: { cookie: adminCookie }, payload: { limiti: tolto },
+    });
+    // Il server scarta i campi che non conosce: nessun limite tolto torna a esistere.
+    assert.deepEqual(Object.keys(old.json().limiti).sort(), ['periodo', 'permettiUpload', 'quota'], JSON.stringify(tolto));
+  }
   const neg = await app.inject({
-    method: 'PATCH', url: `/api/admin/utenti/${userId}`, headers: { cookie: adminCookie }, payload: { limiti: { velocitaKbps: -5 } },
+    method: 'PATCH', url: `/api/admin/utenti/${userId}`, headers: { cookie: adminCookie }, payload: { limiti: { quota: -5 } },
   });
   assert.equal(neg.statusCode, 400);
 
@@ -265,11 +280,49 @@ test('cartelle: si vedono solo quelle esposte, gli upload vanno nella cartella s
   assert.equal(noUp.statusCode, 409);
 });
 
-test('niente regole globali modificabili: solo i valori proposti per un nuovo utente', async () => {
+test('niente regole globali: solo quota e periodo proposti per un nuovo utente', async () => {
   const put = await app.inject({ method: 'PUT', url: '/api/admin/regole', headers: { cookie: adminCookie }, payload: {} });
   assert.equal(put.statusCode, 404);
   const d = await app.inject({ method: 'GET', url: '/api/admin/predefiniti', headers: { cookie: adminCookie } });
-  assert.deepEqual(d.json(), { quota: 400 * GB, periodo: 'week', velocitaKbps: 50_000, simultanei: 2 });
+  assert.deepEqual(d.json(), { quota: 400 * GB, periodo: 'week' });
   const u = await app.inject({ method: 'GET', url: '/api/admin/predefiniti', headers: { cookie: userCookie } });
   assert.notEqual(u.statusCode, 200);
+});
+
+test('svuota storico: spariscono i trasferimenti finiti, la banda usata non cambia', async () => {
+  const FINITI = ['completed', 'rejected', 'cancelled', 'expired'];
+  // Marco è stato sospeso in una prova precedente: lo riattiviamo e rientra.
+  await app.inject({ method: 'PATCH', url: `/api/admin/utenti/${userId}`, headers: { cookie: adminCookie }, payload: { stato: 'active' } });
+  userCookie = await login('marco@test.it', 'password-marco-1');
+  const io = async () => (await app.inject({ method: 'GET', url: '/api/io', headers: { cookie: userCookie } })).json();
+  const mine = async () => (await app.inject({ method: 'GET', url: '/api/io/trasferimenti', headers: { cookie: userCookie } })).json();
+  const prima = await mine();
+  const usataPrima = (await io()).banda.used;
+  assert.ok(prima.some((t: any) => FINITI.includes(t.stato)), 'servono trasferimenti finiti per la prova');
+
+  const r = await app.inject({ method: 'DELETE', url: '/api/io/trasferimenti', headers: { cookie: userCookie } });
+  assert.equal(r.statusCode, 200, r.body);
+  assert.equal(r.json().nascosti, prima.filter((t: any) => FINITI.includes(t.stato)).length);
+  const dopo = await mine();
+  assert.deepEqual(dopo.map((t: any) => t.id), prima.filter((t: any) => !FINITI.includes(t.stato)).map((t: any) => t.id));
+  assert.equal((await io()).banda.used, usataPrima);
+
+  // Dalla scheda della persona: solo l'admin.
+  const vietato = await app.inject({ method: 'DELETE', url: `/api/admin/utenti/${userId}/trasferimenti`, headers: { cookie: userCookie } });
+  assert.equal(vietato.statusCode, 403);
+  const ok = await app.inject({ method: 'DELETE', url: `/api/admin/utenti/${userId}/trasferimenti`, headers: { cookie: adminCookie } });
+  assert.equal(ok.statusCode, 200);
+  const scheda = (await app.inject({ method: 'GET', url: `/api/admin/utenti/${userId}`, headers: { cookie: adminCookie } })).json();
+  assert.ok(scheda.ultimiTrasferimenti.every((t: any) => !FINITI.includes(t.stato)));
+});
+
+test('la dashboard è servita dal server stesso', { skip: !fs.existsSync(path.join(loadConfig({}).webPath, 'index.html')) }, async () => {
+  const home = await app.inject({ method: 'GET', url: '/' });
+  assert.equal(home.statusCode, 200);
+  assert.match(home.headers['content-type'] as string, /text\/html/);
+  const pagina = await app.inject({ method: 'GET', url: '/utenti' });
+  assert.equal(pagina.statusCode, 200);
+  assert.equal(pagina.body, home.body);
+  const api = await app.inject({ method: 'GET', url: '/api/inesistente' });
+  assert.equal(api.statusCode, 404);
 });

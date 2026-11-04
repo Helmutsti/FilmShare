@@ -24,6 +24,7 @@ export interface Transfer {
   decided_at: string | null;
   decision_note: string | null;
   link_expires_at: string | null;
+  hidden_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -65,11 +66,20 @@ function notifyChange(ctx: TransferCtx, userId: number) {
   ctx.bus.toAdmins('utenti');
 }
 
-function activeCount(db: DB, userId: number, kind: Kind): number {
-  return db
-    .prepare(`SELECT COUNT(*) FROM transfers WHERE user_id = ? AND kind = ? AND status IN ('approved', 'in_progress')`)
-    .pluck()
-    .get(userId, kind) as number;
+/**
+ * "Svuota storico": nasconde dagli elenchi i trasferimenti finiti della persona.
+ * Non cancella nulla: la quota del periodo e i link di download restano validi.
+ * Quelli in attesa o in corso restano visibili (servono per seguirli o annullarli).
+ */
+export function hideHistory(ctx: TransferCtx, userId: number): number {
+  const r = ctx.db
+    .prepare(
+      `UPDATE transfers SET hidden_at = ? WHERE user_id = ? AND hidden_at IS NULL
+         AND status IN ('completed', 'rejected', 'cancelled', 'expired')`,
+    )
+    .run(now(), userId);
+  notifyChange(ctx, userId);
+  return r.changes;
 }
 
 /** Nuova richiesta di upload o download: parte subito o va in approvazione. */
@@ -91,10 +101,7 @@ export function requestTransfer(
   if (r.kind === 'upload' && getSettings(db).upload_folder === null) {
     throw new HttpError(409, "L'amministratore non ha ancora scelto una cartella per gli upload");
   }
-  if (r.kind === 'upload' && activeCount(db, userId, 'upload') >= limits.max_concurrent) {
-    throw new HttpError(429, `Puoi caricare al massimo ${limits.max_concurrent} file alla volta`);
-  }
-  const decision = decide(r.kind, r.size, limits, getUsage(db, userId), getSettings(db));
+  const decision = decide(r.size, getUsage(db, userId));
 
   const t = db.transaction(() => {
     const { lastInsertRowid } = db

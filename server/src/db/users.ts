@@ -4,7 +4,7 @@ export type Role = 'user' | 'admin';
 
 function setting<T>(db: DB, key: string): T {
   const raw = db.prepare('SELECT value FROM settings WHERE key = ?').pluck().get(key) as string | undefined;
-  if (raw === undefined) throw new Error(`Regola globale mancante: ${key}`);
+  if (raw === undefined) throw new Error(`Impostazione mancante: ${key}`);
   return JSON.parse(raw) as T;
 }
 
@@ -14,7 +14,7 @@ export function findUserByEmail(db: DB, email: string) {
     .get(email.trim()) as { id: number; email: string; name: string; role: Role; status: string } | undefined;
 }
 
-/** Crea una persona già attiva, con i limiti predefiniti delle regole globali. */
+/** Crea una persona già attiva, con la quota e il periodo proposti per le persone nuove. */
 export function createActiveUser(
   db: DB,
   u: { email: string; name: string; passwordHash: string; role: Role },
@@ -27,16 +27,8 @@ export function createActiveUser(
       .run(u.email.trim(), u.name.trim(), u.passwordHash, u.role);
     const id = Number(lastInsertRowid);
     db.prepare(
-      `INSERT INTO user_limits (user_id, quota_bytes, period, max_speed_kbps, max_concurrent, approval)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(
-      id,
-      setting<number>(db, 'default_quota_bytes'),
-      setting<string>(db, 'default_period'),
-      setting<number>(db, 'default_max_speed_kbps'),
-      setting<number>(db, 'default_max_concurrent'),
-      u.role === 'admin' ? 'never' : 'over_threshold',
-    );
+      `INSERT INTO user_limits (user_id, quota_bytes, period) VALUES (?, ?, ?)`,
+    ).run(id, setting<number>(db, 'default_quota_bytes'), setting<string>(db, 'default_period'));
     return id;
   })();
 }
