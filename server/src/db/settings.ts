@@ -19,14 +19,25 @@ export interface Settings {
   slowdown_over_80: boolean;
   require_approval_over_threshold: boolean;
   suspend_after_3_overruns: boolean;
+  /** "Sospendi trasferimenti": nessun upload o download per nessuno. */
+  transfers_paused: boolean;
+  /** Sottocartelle della cartella principale del NAS mostrate nei download ("" = tutta). */
+  exposed_folders: string[];
+  /** Dove finiscono gli upload (relativa alla cartella principale); null = upload non possibili. */
+  upload_folder: string | null;
 }
 
 export const SETTING_KEYS: (keyof Settings)[] = [
   'default_quota_bytes', 'default_period', 'default_max_speed_kbps', 'default_max_concurrent',
   'server_max_speed_kbps', 'server_max_concurrent', 'night_window', 'download_link_hours',
   'upload_approval_threshold', 'download_approval_threshold', 'block_on_quota_exhausted',
-  'slowdown_over_80', 'require_approval_over_threshold', 'suspend_after_3_overruns',
+  'slowdown_over_80', 'require_approval_over_threshold', 'suspend_after_3_overruns', 'transfers_paused',
+  'exposed_folders', 'upload_folder',
 ];
+
+export function transfersPaused(db: DB): boolean {
+  return db.prepare(`SELECT value FROM settings WHERE key = 'transfers_paused'`).pluck().get() === 'true';
+}
 
 export function getSettings(db: DB): Settings {
   const rows = db.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[];

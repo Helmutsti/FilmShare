@@ -1,9 +1,10 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { DB } from './db/index.js';
-import { getSettings } from './db/settings.js';
+import { getSettings, transfersPaused } from './db/settings.js';
 import type { EventBus } from './events.js';
 import type { Push } from './push.js';
 import { decide, getLimits, getUsage, periodStart } from './quota.js';
+import { isExposed } from './files.js';
 
 export type Kind = 'upload' | 'download';
 export type Status = 'pending' | 'approved' | 'in_progress' | 'completed' | 'rejected' | 'cancelled' | 'expired';
@@ -29,6 +30,13 @@ export interface Transfer {
 
 export class HttpError extends Error {
   constructor(public statusCode: number, message: string) { super(message); }
+}
+
+export const PAUSED_MESSAGE = "Trasferimenti sospesi dall'amministratore: riprova più tardi";
+
+/** Interruttore globale "Sospendi trasferimenti". */
+export function assertNotPaused(db: DB) {
+  if (transfersPaused(db)) throw new HttpError(503, PAUSED_MESSAGE);
 }
 
 const now = () => new Date().toISOString();
@@ -71,11 +79,18 @@ export function requestTransfer(
   r: { kind: Kind; name: string; size: number; fileId?: number },
 ): Transfer {
   const { db } = ctx;
+  assertNotPaused(db);
   if (!Number.isSafeInteger(r.size) || r.size < 0) throw new HttpError(400, 'Dimensione non valida');
   if (r.kind === 'upload' && r.size > ctx.maxFileBytes) {
     throw new HttpError(413, `Il file supera il massimo di ${Math.round(ctx.maxFileBytes / GB)} GB`);
   }
   const limits = getLimits(db, userId);
+  if (r.kind === 'upload' && !limits.can_upload) {
+    throw new HttpError(403, "Il caricamento non è abilitato per il tuo account: chiedi all'amministratore");
+  }
+  if (r.kind === 'upload' && getSettings(db).upload_folder === null) {
+    throw new HttpError(409, "L'amministratore non ha ancora scelto una cartella per gli upload");
+  }
   if (r.kind === 'upload' && activeCount(db, userId, 'upload') >= limits.max_concurrent) {
     throw new HttpError(429, `Puoi caricare al massimo ${limits.max_concurrent} file alla volta`);
   }
@@ -213,10 +228,12 @@ export function checkDownload(ctx: TransferCtx, id: number, exp: string, sig: st
   const given = Buffer.from(sig);
   if (expected.length !== given.length || !timingSafeEqual(expected, given)) throw new HttpError(403, 'Link non valido');
   if (Number(exp) < Date.now()) throw new HttpError(410, 'Link scaduto');
+  assertNotPaused(ctx.db);
   const t = getTransfer(ctx.db, id);
   if (!t || !['approved', 'completed'].includes(t.status) || t.file_id === null) throw new HttpError(403, 'Download non consentito');
   const f = ctx.db.prepare('SELECT rel_path FROM files WHERE id = ?').get(t.file_id) as { rel_path: string } | undefined;
   if (!f) throw new HttpError(404, 'Il file non è più nella cartella condivisa');
+  if (!isExposed(f.rel_path, getSettings(ctx.db).exposed_folders)) throw new HttpError(404, 'Il file non è più nella cartella condivisa');
   if (t.status === 'approved') {
     ctx.db.prepare(`UPDATE transfers SET status = 'completed', updated_at = ? WHERE id = ?`).run(now(), id);
     ctx.bus.toUser(t.user_id, 'trasferimenti');

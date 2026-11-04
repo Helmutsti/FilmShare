@@ -33,8 +33,11 @@ export function FileIcon() {
   return <span className="file-icon" aria-hidden><Film size={16} /></span>;
 }
 
-export function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
-  return <button type="button" role="switch" aria-checked={checked} aria-label={label} className="toggle" onClick={() => onChange(!checked)} />;
+export function Toggle({ checked, onChange, label, disabled }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
+  return (
+    <button type="button" role="switch" aria-checked={checked} aria-label={label} className="toggle" disabled={disabled}
+      style={disabled ? { opacity: 0.5, cursor: 'not-allowed' } : undefined} onClick={() => onChange(!checked)} />
+  );
 }
 
 /** Barra della banda: upload, download, in corso (a righe), con la legenda. */

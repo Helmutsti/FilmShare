@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { hashPassword, MIN_PASSWORD_LENGTH } from '../auth/password.js';
 import { deleteUserSessions } from '../auth/sessions.js';
-import { getSettings, updateSettings, SETTING_KEYS, type Settings } from '../db/settings.js';
+import { getSettings, updateSettings } from '../db/settings.js';
+import { checkFolder, invalidateScan, isExposed, listFolders } from '../files.js';
 import { createActiveUser, findUserByEmail, type Role } from '../db/users.js';
 import { getUsage } from '../quota.js';
 import {
@@ -15,13 +16,16 @@ const limitsSchema = {
   properties: {
     quota: { type: 'integer', minimum: 0 },
     periodo: { enum: ['day', 'week', 'month'] },
-    velocitaKbps: { type: 'integer', minimum: 1 },
+    velocitaKbps: { type: 'integer', minimum: 0 }, // 0 = nessun limite
     simultanei: { type: 'integer', minimum: 1, maximum: 20 },
     approvazione: { enum: ['never', 'over_threshold', 'always'] },
+    permettiUpload: { type: 'boolean' },
   },
 } as const;
 
-type LimitsBody = { quota?: number; periodo?: string; velocitaKbps?: number; simultanei?: number; approvazione?: string };
+type LimitsBody = {
+  quota?: number; periodo?: string; velocitaKbps?: number; simultanei?: number; approvazione?: string; permettiUpload?: boolean;
+};
 
 export async function adminRoutes(app: FastifyInstance, { ctx }: { ctx: Ctx }) {
   const { db } = ctx;
@@ -32,7 +36,7 @@ export async function adminRoutes(app: FastifyInstance, { ctx }: { ctx: Ctx }) {
     const r = db
       .prepare(
         `SELECT u.id, u.email, u.name, u.role, u.status, u.created_at, u.last_seen_at,
-                l.quota_bytes, l.period, l.max_speed_kbps, l.max_concurrent, l.approval
+                l.quota_bytes, l.period, l.max_speed_kbps, l.max_concurrent, l.approval, l.can_upload
          FROM users u JOIN user_limits l ON l.user_id = u.id WHERE u.id = ?`,
       )
       .get(id) as any;
@@ -42,7 +46,7 @@ export async function adminRoutes(app: FastifyInstance, { ctx }: { ctx: Ctx }) {
       id: r.id, email: r.email, nome: r.name, ruolo: r.role,
       stato: r.status === 'active' && banda.remaining === 0 && banda.quota > 0 ? 'blocked' : r.status,
       creato: r.created_at, ultimoAccesso: r.last_seen_at,
-      limiti: { quota: r.quota_bytes, periodo: r.period, velocitaKbps: r.max_speed_kbps, simultanei: r.max_concurrent, approvazione: r.approval },
+      limiti: { quota: r.quota_bytes, periodo: r.period, velocitaKbps: r.max_speed_kbps, simultanei: r.max_concurrent, approvazione: r.approval, permettiUpload: r.can_upload === 1 },
       banda,
     };
   }
@@ -91,10 +95,11 @@ export async function adminRoutes(app: FastifyInstance, { ctx }: { ctx: Ctx }) {
   function applyLimits(id: number, l: LimitsBody) {
     const map: Record<keyof LimitsBody, string> = {
       quota: 'quota_bytes', periodo: 'period', velocitaKbps: 'max_speed_kbps', simultanei: 'max_concurrent', approvazione: 'approval',
+      permettiUpload: 'can_upload',
     };
     for (const [k, col] of Object.entries(map)) {
       const v = l[k as keyof LimitsBody];
-      if (v !== undefined) db.prepare(`UPDATE user_limits SET ${col} = ? WHERE user_id = ?`).run(v, id);
+      if (v !== undefined) db.prepare(`UPDATE user_limits SET ${col} = ? WHERE user_id = ?`).run(typeof v === 'boolean' ? Number(v) : v, id);
     }
   }
 
@@ -198,49 +203,63 @@ export async function adminRoutes(app: FastifyInstance, { ctx }: { ctx: Ctx }) {
     return { approvate: approveWithinLimits(ctx, a.id) };
   });
 
-  // --- Regole di banda ---
+  // --- "Sospendi trasferimenti": blocca ogni upload e download per tutti ---
 
-  app.get('/api/admin/regole', async (req) => {
+  app.put<{ Body: { sospesi: boolean } }>('/api/admin/sospensione', {
+    schema: { body: { type: 'object', required: ['sospesi'], additionalProperties: false, properties: { sospesi: { type: 'boolean' } } } },
+  }, async (req) => {
     requireAdmin(req);
-    return getSettings(db);
+    db.prepare(`UPDATE settings SET value = ? WHERE key = 'transfers_paused'`).run(JSON.stringify(req.body.sospesi));
+    ctx.bus.toAll('regole'); // tutte le pagine aperte ricaricano lo stato e mostrano o tolgono l'avviso
+    return { sospesi: req.body.sospesi };
   });
 
-  app.put<{ Body: Partial<Settings> }>('/api/admin/regole', {
+  // --- Cartelle: quali sottocartelle del NAS sono esposte e dove vanno gli upload ---
+
+  app.get('/api/admin/cartelle', async (req) => {
+    requireAdmin(req);
+    const s = getSettings(db);
+    return { cartelle: await listFolders(ctx.config.sharedPath), esposte: s.exposed_folders, upload: s.upload_folder };
+  });
+
+  app.put<{ Body: { esposte: string[]; upload: string | null } }>('/api/admin/cartelle', {
     schema: {
       body: {
-        type: 'object', additionalProperties: false,
+        type: 'object', required: ['esposte', 'upload'], additionalProperties: false,
         properties: {
-          default_quota_bytes: { type: 'integer', minimum: 0 },
-          default_period: { enum: ['day', 'week', 'month'] },
-          default_max_speed_kbps: { type: 'integer', minimum: 1 },
-          default_max_concurrent: { type: 'integer', minimum: 1 },
-          server_max_speed_kbps: { type: 'integer', minimum: 1 },
-          server_max_concurrent: { type: 'integer', minimum: 1 },
-          night_window: {
-            anyOf: [
-              { type: 'null' },
-              {
-                type: 'object', required: ['start', 'end'], additionalProperties: false,
-                properties: { start: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }, end: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' } },
-              },
-            ],
-          },
-          download_link_hours: { type: 'integer', minimum: 1, maximum: 720 },
-          upload_approval_threshold: { type: 'integer', minimum: 0 },
-          download_approval_threshold: { type: 'integer', minimum: 0 },
-          block_on_quota_exhausted: { type: 'boolean' },
-          slowdown_over_80: { type: 'boolean' },
-          require_approval_over_threshold: { type: 'boolean' },
-          suspend_after_3_overruns: { type: 'boolean' },
+          esposte: { type: 'array', maxItems: 200, items: { type: 'string', maxLength: 1000 } },
+          upload: { anyOf: [{ type: 'null' }, { type: 'string', maxLength: 1000 }] },
         },
       },
     },
   }, async (req) => {
     requireAdmin(req);
-    updateSettings(db, req.body);
+    const root = ctx.config.sharedPath;
+    let esposte: string[];
+    let upload: string | null;
+    try {
+      esposte = [...new Set(await Promise.all(req.body.esposte.map((f) => checkFolder(root, f))))];
+      upload = req.body.upload === null ? null : await checkFolder(root, req.body.upload);
+    } catch (e) {
+      throw new HttpError(400, (e as Error).message);
+    }
+    // La cartella di upload è sempre anche di download: i file caricati si possono scaricare.
+    if (upload !== null && !isExposed(upload, esposte)) esposte.push(upload);
+    updateSettings(db, { exposed_folders: esposte, upload_folder: upload });
+    invalidateScan();
+    ctx.bus.toAll('file');
     ctx.bus.toAll('regole');
-    return getSettings(db);
+    return { esposte, upload };
   });
 
-  void SETTING_KEYS;
+  // --- Valori proposti per un nuovo utente (non c'è più una pagina di regole globali) ---
+
+  app.get('/api/admin/predefiniti', async (req) => {
+    requireAdmin(req);
+    const s = getSettings(db);
+    return {
+      quota: s.default_quota_bytes, periodo: s.default_period,
+      velocitaKbps: s.default_max_speed_kbps, simultanei: s.default_max_concurrent,
+    };
+  });
 }

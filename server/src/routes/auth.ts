@@ -54,6 +54,8 @@ export async function authRoutes(app: FastifyInstance, { ctx }: { ctx: Ctx }) {
     return {
       utente: u, limiti: getLimits(db, u.id), banda: getUsage(db, u.id), pushKey: ctx.push.publicKey,
       soglie: { upload: s.upload_approval_threshold, download: s.download_approval_threshold, maxFile: ctx.maxFileBytes },
+      sospesi: s.transfers_paused,
+      cartellaUpload: s.upload_folder,
     };
   });
 }

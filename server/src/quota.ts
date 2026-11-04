@@ -28,12 +28,15 @@ export interface Limits {
   max_speed_kbps: number;
   max_concurrent: number;
   approval: 'never' | 'over_threshold' | 'always';
+  can_upload: boolean;
 }
 
 export function getLimits(db: DB, userId: number): Limits {
-  const l = db.prepare('SELECT quota_bytes, period, max_speed_kbps, max_concurrent, approval FROM user_limits WHERE user_id = ?').get(userId) as Limits | undefined;
+  const l = db
+    .prepare('SELECT quota_bytes, period, max_speed_kbps, max_concurrent, approval, can_upload FROM user_limits WHERE user_id = ?')
+    .get(userId) as (Omit<Limits, 'can_upload'> & { can_upload: number }) | undefined;
   if (!l) throw new Error(`Limiti mancanti per l'utente ${userId}`);
-  return l;
+  return { ...l, can_upload: l.can_upload === 1 };
 }
 
 export interface Usage {
@@ -97,10 +100,18 @@ export function inNightWindow(s: Settings, now = new Date()): boolean {
   return a <= b ? t >= a && t < b : t >= a || t < b;
 }
 
-/** Velocità per un download, in byte al secondo; 0 = nessun limite (fascia notturna). */
+const SLOWDOWN_KBPS = 10_000; // 10 Mbps oltre l'80% della quota
+
+/**
+ * Velocità per un download, in byte al secondo; 0 = nessun limite.
+ * max_speed_kbps = 0 vuol dire "nessun limite" per la persona; la fascia notturna toglie ogni limite;
+ * il rallentamento oltre l'80% vale anche per chi non ha limite.
+ */
 export function downloadRateBytes(limits: Limits, usage: Usage, s: Settings, now = new Date()): number {
   if (inNightWindow(s, now)) return 0;
-  let kbps = limits.max_speed_kbps;
-  if (s.slowdown_over_80 && usage.quota > 0 && usage.used > usage.quota * 0.8) kbps = Math.min(kbps, 10_000);
+  let kbps = limits.max_speed_kbps; // 0 = nessun limite
+  if (s.slowdown_over_80 && usage.quota > 0 && usage.used > usage.quota * 0.8) {
+    kbps = kbps === 0 ? SLOWDOWN_KBPS : Math.min(kbps, SLOWDOWN_KBPS);
+  }
   return Math.floor((kbps * 1000) / 8);
 }

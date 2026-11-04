@@ -1,8 +1,10 @@
 # FilmShare
 
 Scambio di film e file pesanti tra amici. Ogni persona ha una **quota unica** (upload + download insieme)
-in un periodo scelto dall'admin (giorno, settimana da lunedì, mese). L'admin crea gli utenti, approva le richieste
-oltre soglia o oltre quota e imposta le regole di banda.
+in un periodo scelto dall'admin (giorno, settimana da lunedì, mese). L'admin crea gli utenti, imposta le regole
+di ognuno (quota, periodo, velocità, simultanei, approvazione, "Permetti upload") e approva le richieste
+oltre soglia o oltre quota. Non ci sono regole globali da impostare; c'è solo l'interruttore
+**Sospendi trasferimenti** (pagina Utenti), che ferma ogni upload e download per tutti.
 Disegni: https://www.figma.com/design/DSXFok6tsIbfbtBWXjt99O
 
 ## Pezzi
@@ -33,9 +35,13 @@ Disegni: https://www.figma.com/design/DSXFok6tsIbfbtBWXjt99O
 
 Dove stanno i dati:
 - **database**: volume Docker `dati` (disco del server). Mai sul NAS: SQLite su NFS si può rovinare. Per il backup basta copiare il volume.
-- **film**: `SHARED_DIR`. Gli upload in corso stanno nella sottocartella nascosta `.upload-in-corso`, sullo stesso NAS,
+- **film**: `SHARED_DIR`, la cartella principale del NAS (una sola). Dalla pagina **Cartelle** l'admin sceglie quali
+  sottocartelle vedono gli utenti (tutti i file insieme, in un unico elenco) e in quale finiscono gli upload; la cartella
+  di upload è sempre anche scaricabile. Una cartella visibile include le sue sottocartelle.
+- Gli upload in corso stanno nella sottocartella nascosta `.upload-in-corso`, sullo stesso NAS,
   così a fine upload il file si sposta all'istante invece di essere ricopiato.
-- I file copiati a mano sul NAS compaiono da soli nella cartella condivisa.
+- I file copiati a mano in una cartella visibile compaiono da soli entro 15 secondi.
+- Per cambiare la cartella principale: modifica `SHARED_DIR` in `.env` e `docker compose up -d`.
 
 ## Sviluppo
 ```
@@ -76,5 +82,7 @@ Note:
 ## Come funziona la quota
 - Prima di un upload o di un download si **prenota** tutta la dimensione del file nel periodo corrente della persona.
 - Riprese e nuovi tentativi non contano due volte; se il trasferimento viene annullato, rifiutato o il link scade senza essere usato, la prenotazione torna disponibile.
-- Sopra la soglia (regole di banda) o oltre la quota rimasta la richiesta va in **Approvazioni**; l'admin può approvarla come eccezione senza cambiare i limiti della persona.
-- Fascia notturna: download senza limite di velocità. Oltre l'80% della quota (se attivo): 10 Mbps.
+- Con approvazione "Oltre soglia", i file sopra 10 GB (upload) o 50 GB (download) vanno in **Approvazioni**; con "Sempre" ci vanno tutti, con "Mai" nessuno.
+- Oltre la quota rimasta la richiesta va comunque in **Approvazioni**: l'admin può approvarla come eccezione senza cambiare i limiti della persona.
+- Velocità massima vuota o 0 = nessun limite. "Permetti upload" spento = la persona può solo scaricare.
+- Le soglie (10 GB / 50 GB), la scadenza dei link (48 ore) e i valori proposti per un nuovo utente (400 GB a settimana, 50 Mbps, 2 simultanei) sono fissi, nella tabella `settings` del database.

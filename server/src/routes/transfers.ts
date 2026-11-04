@@ -77,6 +77,7 @@ export async function transferRoutes(app: FastifyInstance, { ctx }: { ctx: Ctx }
   app.post('/api/file/:id/download', async (req) => {
     const u = requireUser(req);
     const fileId = idParam(req);
+    await syncShared(db, config.sharedPath); // toglie i file di cartelle non più esposte
     const f = db.prepare('SELECT id, name, size_bytes FROM files WHERE id = ?').get(fileId) as
       | { id: number; name: string; size_bytes: number } | undefined;
     if (!f) throw new HttpError(404, 'File non trovato');

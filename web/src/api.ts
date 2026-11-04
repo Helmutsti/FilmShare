@@ -9,10 +9,19 @@ export interface Banda {
   upload: number; download: number; inProgress: number; used: number; remaining: number;
 }
 export interface Utente { id: number; email: string; name: string; role: 'user' | 'admin'; status: string }
-export interface Limiti { quota_bytes: number; period: Period; max_speed_kbps: number; max_concurrent: number; approval: Approval }
+export interface Limiti { quota_bytes: number; period: Period; max_speed_kbps: number; max_concurrent: number; approval: Approval; can_upload: boolean }
 export interface Io {
   utente: Utente; limiti: Limiti; banda: Banda; pushKey: string;
   soglie: { upload: number; download: number; maxFile: number };
+  /** "Sospendi trasferimenti" attivo: nessun upload o download per nessuno. */
+  sospesi: boolean;
+  /** Cartella di destinazione degli upload; null = non ancora scelta (upload non possibili). */
+  cartellaUpload: string | null;
+}
+export interface Cartelle {
+  cartelle: { percorso: string; nome: string; livello: number }[];
+  esposte: string[];
+  upload: string | null;
 }
 
 export interface Trasferimento {
@@ -30,16 +39,12 @@ export interface Richiesta extends Trasferimento {
 }
 export interface UtenteAdmin {
   id: number; email: string; nome: string; ruolo: 'user' | 'admin'; stato: string; creato: string; ultimoAccesso: string | null;
-  limiti: { quota: number; periodo: Period; velocitaKbps: number; simultanei: number; approvazione: Approval };
+  limiti: { quota: number; periodo: Period; velocitaKbps: number; simultanei: number; approvazione: Approval; permettiUpload: boolean };
   banda: Banda;
   ultimiTrasferimenti?: Trasferimento[];
 }
-export interface Regole {
-  default_quota_bytes: number; default_period: Period; default_max_speed_kbps: number; default_max_concurrent: number;
-  server_max_speed_kbps: number; server_max_concurrent: number; night_window: { start: string; end: string } | null;
-  download_link_hours: number; upload_approval_threshold: number; download_approval_threshold: number;
-  block_on_quota_exhausted: boolean; slowdown_over_80: boolean; require_approval_over_threshold: boolean; suspend_after_3_overruns: boolean;
-}
+/** Valori proposti nel modulo "Nuovo utente". */
+export interface Predefiniti { quota: number; periodo: Period; velocitaKbps: number; simultanei: number }
 export interface Riepilogo { inAttesa: number; upload: number; download: number; piuVecchia: string | null; volume: number; trafficoOggi: number }
 
 export class ApiError extends Error {
@@ -83,7 +88,9 @@ export const api = {
   approva: (id: number) => call<Trasferimento>('POST', `/api/admin/richieste/${id}/approva`),
   rifiuta: (id: number, nota?: string) => call<Trasferimento>('POST', `/api/admin/richieste/${id}/rifiuta`, { nota }),
   approvaEntroLimiti: () => call<{ approvate: number }>('POST', '/api/admin/richieste/approva-entro-limiti'),
-  regole: () => call<Regole>('GET', '/api/admin/regole'),
-  salvaRegole: (r: Partial<Regole>) => call<Regole>('PUT', '/api/admin/regole', r),
+  sospendiTrasferimenti: (sospesi: boolean) => call<{ sospesi: boolean }>('PUT', '/api/admin/sospensione', { sospesi }),
+  cartelle: () => call<Cartelle>('GET', '/api/admin/cartelle'),
+  salvaCartelle: (b: { esposte: string[]; upload: string | null }) => call<{ esposte: string[]; upload: string | null }>('PUT', '/api/admin/cartelle', b),
+  predefiniti: () => call<Predefiniti>('GET', '/api/admin/predefiniti'),
   iscriviNotifiche: (sub: PushSubscriptionJSON) => call<{ ok: true }>('POST', '/api/notifiche/iscrizione', sub),
 };

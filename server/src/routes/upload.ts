@@ -9,8 +9,9 @@ import type { FastifyInstance } from 'fastify';
 import { Server, EVENTS } from '@tus/server';
 import { FileStore } from '@tus/file-store';
 import { tokenFromCookieHeader, userFromToken } from '../auth/sessions.js';
-import { freeName, moveFile } from '../files.js';
-import { finishUpload, getTransfer, HttpError, startUpload, uploadOwner } from '../transfers.js';
+import { freeName, moveFile, safeJoin } from '../files.js';
+import { getSettings } from '../db/settings.js';
+import { assertNotPaused, finishUpload, getTransfer, HttpError, startUpload, uploadOwner } from '../transfers.js';
 import type { Ctx } from '../context.js';
 
 const TUS_PATH = '/api/upload/tus';
@@ -39,6 +40,7 @@ export async function uploadRoutes(app: FastifyInstance, { ctx }: { ctx: Ctx }) 
     maxSize: config.maxFileBytes,
     async onUploadCreate(req, upload) {
       try {
+        assertNotPaused(db);
         const u = userOf(req);
         const transferId = Number(upload.metadata?.transferId);
         startUpload(ctx, transferId, u.id, upload.size, upload.id);
@@ -55,6 +57,8 @@ export async function uploadRoutes(app: FastifyInstance, { ctx }: { ctx: Ctx }) 
         const owner = uploadOwner(db, uploadId);
         if (!owner || owner.user_id !== u.id) throw new HttpError(404, 'Upload non trovato');
         if (owner.status !== 'in_progress' && req.method === 'PATCH') throw new HttpError(409, 'Upload non più attivo');
+        // Sospensione: il pezzo successivo viene rifiutato; il punto raggiunto resta e si riprende da lì.
+        if (req.method === 'PATCH') assertNotPaused(db);
       } catch (e) {
         throw fail(e);
       }
@@ -63,10 +67,15 @@ export async function uploadRoutes(app: FastifyInstance, { ctx }: { ctx: Ctx }) 
       try {
         const owner = uploadOwner(db, upload.id)!;
         const t = getTransfer(db, owner.id)!;
-        const name = await freeName(config.sharedPath, t.name);
-        await moveFile(path.join(config.uploadTmpPath, upload.id), path.join(config.sharedPath, name));
+        // Destinazione scelta dall'admin nella pagina "Cartelle" (letta ora: se è cambiata durante l'upload vale la nuova).
+        const folder = getSettings(db).upload_folder ?? '';
+        const destDir = safeJoin(config.sharedPath, folder);
+        await fs.mkdir(destDir, { recursive: true });
+        const name = await freeName(destDir, t.name);
+        await moveFile(path.join(config.uploadTmpPath, upload.id), path.join(destDir, name));
         await fs.rm(path.join(config.uploadTmpPath, `${upload.id}.json`), { force: true });
-        finishUpload(ctx, upload.id, { relPath: name, name, size: upload.size ?? t.size_bytes });
+        const relPath = folder ? `${folder}/${name}` : name;
+        finishUpload(ctx, upload.id, { relPath, name, size: upload.size ?? t.size_bytes });
         return {};
       } catch (e) {
         app.log.error(e, 'upload: spostamento sul NAS non riuscito');

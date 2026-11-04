@@ -44,3 +44,12 @@ test('velocità: notte senza limiti, oltre 80% rallenta a 10 Mbps', () => {
   assert.equal(downloadRateBytes(limits, usage(350 * GB), s, day), 10_000_000 / 8);
   assert.equal(downloadRateBytes(limits, usage(0), s, new Date(2026, 0, 1, 2, 0)), 0);
 });
+
+test('velocità 0 = nessun limite; con le regole globali spente nessun rallentamento nascosto', () => {
+  const day = new Date(2026, 0, 1, 12, 0);
+  const free = { ...limits, max_speed_kbps: 0 };
+  const off = { ...s, slowdown_over_80: false, night_window: null };
+  assert.equal(downloadRateBytes(free, usage(0), off, day), 0);
+  assert.equal(downloadRateBytes(free, usage(390 * GB), off, day), 0);
+  assert.equal(downloadRateBytes(limits, usage(390 * GB), off, day), 50_000_000 / 8);
+});

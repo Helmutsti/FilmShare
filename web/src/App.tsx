@@ -8,8 +8,8 @@ import { CaricaFile } from './pages/CaricaFile';
 import { Condivisi } from './pages/Condivisi';
 import { Trasferimenti } from './pages/Trasferimenti';
 import { Approvazioni } from './pages/Approvazioni';
-import { Regole } from './pages/Regole';
 import { Utenti } from './pages/Utenti';
+import { Cartelle } from './pages/Cartelle';
 
 function Routing() {
   const { io, loading } = useSession();
@@ -24,8 +24,8 @@ function Routing() {
         <Route path="/condivisi" element={<Condivisi />} />
         <Route path="/trasferimenti" element={<Trasferimenti />} />
         {admin && <Route path="/admin/approvazioni" element={<Approvazioni />} />}
-        {admin && <Route path="/admin/regole" element={<Regole />} />}
         {admin && <Route path="/admin/utenti" element={<Utenti />} />}
+        {admin && <Route path="/admin/cartelle" element={<Cartelle />} />}
         <Route path="*" element={<Navigate to="/carica" replace />} />
       </Route>
     </Routes>

@@ -1,10 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, type Approval, type Period, type UtenteAdmin } from '../api';
-import { bytes, fa, GB, periodoQuesto } from '../format';
+import { bytes, fa, fieldToKbps, GB, periodoQuesto, speedToField } from '../format';
 import { useLive } from '../live';
 import { useSession } from '../session';
 import { useData } from '../useData';
-import { Avatar, Badge, BandBar, PageHeader, SimpleBar, statoBadge } from '../ui';
+import { Avatar, Badge, BandBar, PageHeader, SimpleBar, statoBadge, Toggle } from '../ui';
 
 type Tab = 'tutti' | 'attivi' | 'bloccati' | 'sospesi';
 
@@ -15,17 +15,21 @@ function statoUtente(s: string) {
   return <Badge tone="neutro">{s}</Badge>;
 }
 
-interface LimitForm { quotaGb: string; periodo: Period; velocitaMbps: string; simultanei: string; approvazione: Approval; ruolo: 'user' | 'admin' }
+interface LimitForm {
+  quotaGb: string; periodo: Period; velocitaMbps: string; simultanei: string; approvazione: Approval; ruolo: 'user' | 'admin';
+  permettiUpload: boolean;
+}
 const toLimitForm = (u: UtenteAdmin): LimitForm => ({
-  quotaGb: String(Math.round(u.limiti.quota / GB)), periodo: u.limiti.periodo, velocitaMbps: String(u.limiti.velocitaKbps / 1000),
-  simultanei: String(u.limiti.simultanei), approvazione: u.limiti.approvazione, ruolo: u.ruolo,
+  quotaGb: String(Math.round(u.limiti.quota / GB)), periodo: u.limiti.periodo, velocitaMbps: speedToField(u.limiti.velocitaKbps),
+  simultanei: String(u.limiti.simultanei), approvazione: u.limiti.approvazione, ruolo: u.ruolo, permettiUpload: u.limiti.permettiUpload,
 });
 const limitiDa = (f: LimitForm) => ({
   quota: Math.max(0, Math.round(Number(f.quotaGb.replace(',', '.')) * GB)),
   periodo: f.periodo,
-  velocitaKbps: Math.max(1, Math.round(Number(f.velocitaMbps.replace(',', '.')) * 1000)),
+  velocitaKbps: fieldToKbps(f.velocitaMbps), // vuoto o 0 = nessun limite
   simultanei: Math.max(1, Math.round(Number(f.simultanei) || 1)),
   approvazione: f.approvazione,
+  permettiUpload: f.permettiUpload,
 });
 
 function LimitFields({ f, set }: { f: LimitForm; set: (f: LimitForm) => void }) {
@@ -47,7 +51,7 @@ function LimitFields({ f, set }: { f: LimitForm; set: (f: LimitForm) => void }) 
       <div className="row" style={{ gap: 12 }}>
         <label className="field"><span>Velocità massima</span>
           <div style={{ position: 'relative' }}>
-            <input className="input" inputMode="decimal" value={f.velocitaMbps} onChange={(e) => set({ ...f, velocitaMbps: e.target.value })} style={{ paddingRight: 56 }} />
+            <input className="input" inputMode="decimal" placeholder="Nessun limite" value={f.velocitaMbps} onChange={(e) => set({ ...f, velocitaMbps: e.target.value })} style={{ paddingRight: 56 }} />
             <span className="t-body c-muted" style={{ position: 'absolute', right: 12, top: 11 }}>Mbps</span>
           </div>
         </label>
@@ -66,6 +70,13 @@ function LimitFields({ f, set }: { f: LimitForm; set: (f: LimitForm) => void }) 
             <option value="user">Utente</option><option value="admin">Amministratore</option>
           </select>
         </label>
+      </div>
+      <div className="between" style={{ padding: '4px 0' }}>
+        <div className="stack-sm" style={{ gap: 2 }}>
+          <span className="t-label">Permetti upload</span>
+          <span className="t-caption c-muted">{f.permettiUpload ? 'Può caricare file nella cartella condivisa' : 'Può solo scaricare'}</span>
+        </div>
+        <Toggle checked={f.permettiUpload} onChange={(v) => set({ ...f, permettiUpload: v })} label="Permetti upload" />
       </div>
     </>
   );
@@ -142,19 +153,19 @@ function Dettaglio({ id, onSaved }: { id: number; onSaved: () => void }) {
 }
 
 function NuovoUtente({ onClose, onCreated }: { onClose: () => void; onCreated: (id: number) => void }) {
-  const regole = useData(api.regole);
+  const def = useData(api.predefiniti);
   const [nome, setNome] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [f, setF] = useState<LimitForm | null>(null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
-    if (regole.data) setF({
-      quotaGb: String(Math.round(regole.data.default_quota_bytes / GB)), periodo: regole.data.default_period,
-      velocitaMbps: String(regole.data.default_max_speed_kbps / 1000), simultanei: String(regole.data.default_max_concurrent),
-      approvazione: 'over_threshold', ruolo: 'user',
+    if (def.data) setF({
+      quotaGb: String(Math.round(def.data.quota / GB)), periodo: def.data.periodo,
+      velocitaMbps: speedToField(def.data.velocitaKbps), simultanei: String(def.data.simultanei),
+      approvazione: 'over_threshold', ruolo: 'user', permettiUpload: true,
     });
-  }, [regole.data]);
+  }, [def.data]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -188,6 +199,33 @@ function NuovoUtente({ onClose, onCreated }: { onClose: () => void; onCreated: (
   );
 }
 
+/** Interruttore globale: blocca ogni upload e download per tutti gli utenti, admin compresi. */
+function SospendiTrasferimenti() {
+  const { io, refresh } = useSession();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  if (!io) return null;
+  async function change(v: boolean) {
+    setBusy(true);
+    setErr(null);
+    try { await api.sospendiTrasferimenti(v); refresh(); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+  }
+  return (
+    <section className={`banner ${io.sospesi ? 'banner-danger' : 'banner-primary'}`} style={{ opacity: busy ? 0.6 : 1 }} aria-label="Sospendi trasferimenti">
+      <div className="grow stack-sm" style={{ gap: 2 }}>
+        <span className="t-strong">Sospendi trasferimenti</span>
+        <span className="t-caption c-secondary">
+          {io.sospesi
+            ? 'Attivo: nessun upload o download per nessun utente. Gli upload interrotti riprendono da dove erano quando lo spegni.'
+            : 'Blocca subito qualsiasi upload e download per tutti gli utenti, amministratori compresi.'}
+        </span>
+        {err && <span className="error-text">{err}</span>}
+      </div>
+      <Toggle checked={io.sospesi} onChange={change} label="Sospendi trasferimenti" />
+    </section>
+  );
+}
+
 export function Utenti() {
   const utenti = useData(api.utenti);
   useLive(['utenti'], utenti.reload);
@@ -207,6 +245,7 @@ export function Utenti() {
         subtitle="Chi può accedere a FilmShare e quanta banda può usare. Quota e periodo valgono per upload e download insieme."
         actions={<button className="btn btn-primary" onClick={() => setNuovo(true)}>Nuovo utente</button>}
       />
+      <SospendiTrasferimenti />
       <div className="tabs" role="tablist">
         {([['tutti', `Tutti (${all.length})`], ['attivi', `Attivi (${count('active')})`], ['bloccati', `Bloccati (${count('blocked')})`], ['sospesi', `Sospesi (${count('suspended')})`]] as [Tab, string][])
           .map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className={`tab${tab === k ? ' active' : ''}`} onClick={() => setTab(k)}>{l}</button>)}

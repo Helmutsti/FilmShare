@@ -58,6 +58,18 @@ export function CaricaFile() {
 
       <BandCard banda={io.banda} />
 
+      {!io.limiti.can_upload || io.cartellaUpload === null ? (
+        <section className="dropzone" aria-label="Caricamento non abilitato" style={{ borderColor: 'var(--border-strong)' }}>
+          <span className="drop-icon" style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }}><Upload size={22} /></span>
+          <h2 className="t-title">Il caricamento non è abilitato</h2>
+          <p className="t-body c-secondary" style={{ margin: 0 }}>
+            {!io.limiti.can_upload
+              ? "Per il tuo account l'amministratore ha permesso solo i download. Puoi scaricare dalla cartella condivisa."
+              : "L'amministratore non ha ancora scelto la cartella in cui salvare i file caricati. Puoi scaricare dalla cartella condivisa."}
+          </p>
+          <Link className="btn btn-secondary" to="/condivisi">Vai alla cartella condivisa</Link>
+        </section>
+      ) : (
       <section
         className={`dropzone${over ? ' over' : ''}`}
         onDragOver={(e) => { e.preventDefault(); setOver(true); }}
@@ -78,6 +90,7 @@ export function CaricaFile() {
         <input ref={fileInput} type="file" multiple hidden onChange={(e) => { void take(e.target.files); e.target.value = ''; }} />
         <input ref={dirInput} type="file" multiple hidden {...{ webkitdirectory: '' }} onChange={(e) => { void take(e.target.files); e.target.value = ''; }} />
       </section>
+      )}
 
       {errors.length > 0 && (
         <div className="banner banner-danger" role="alert">

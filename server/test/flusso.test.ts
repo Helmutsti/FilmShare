@@ -168,25 +168,108 @@ test('oltre soglia va in approvazione; approvata prenota; annullata restituisce'
   assert.equal(n.approvate, 1, 'ora la quota basta');
 });
 
-test("l'admin cambia quota e periodo; sospensione chiude le sessioni", async () => {
+test("l'admin cambia quota, periodo e velocità (0 = nessun limite); sospensione chiude le sessioni", async () => {
   const r = await app.inject({
     method: 'PATCH', url: `/api/admin/utenti/${userId}`, headers: { cookie: adminCookie },
-    payload: { limiti: { quota: 100 * GB, periodo: 'month' } },
+    payload: { limiti: { quota: 100 * GB, periodo: 'month', velocitaKbps: 0 } },
   });
+  assert.equal(r.statusCode, 200, r.body);
   assert.equal(r.json().limiti.periodo, 'month');
+  assert.equal(r.json().limiti.velocitaKbps, 0);
+  const neg = await app.inject({
+    method: 'PATCH', url: `/api/admin/utenti/${userId}`, headers: { cookie: adminCookie }, payload: { limiti: { velocitaKbps: -5 } },
+  });
+  assert.equal(neg.statusCode, 400);
+
+  // "Permetti upload" spento: niente upload, i download restano.
+  const off = await app.inject({
+    method: 'PATCH', url: `/api/admin/utenti/${userId}`, headers: { cookie: adminCookie }, payload: { limiti: { permettiUpload: false } },
+  });
+  assert.equal(off.json().limiti.permettiUpload, false);
+  const up = await app.inject({
+    method: 'POST', url: '/api/upload/richieste', headers: { cookie: userCookie }, payload: { nome: 'No.mkv', dimensione: 10 },
+  });
+  assert.equal(up.statusCode, 403);
+  const io0 = (await app.inject({ method: 'GET', url: '/api/io', headers: { cookie: userCookie } })).json();
+  assert.equal(io0.limiti.can_upload, false);
+  const files = (await app.inject({ method: 'GET', url: '/api/file', headers: { cookie: userCookie } })).json();
+  const dl = await app.inject({ method: 'POST', url: `/api/file/${files.file[0].id}/download`, headers: { cookie: userCookie } });
+  assert.equal(dl.statusCode, 200, dl.body);
   const s = await app.inject({ method: 'PATCH', url: `/api/admin/utenti/${userId}`, headers: { cookie: adminCookie }, payload: { stato: 'suspended' } });
   assert.equal(s.statusCode, 200);
   const io = await app.inject({ method: 'GET', url: '/api/io', headers: { cookie: userCookie } });
   assert.equal(io.statusCode, 401);
 });
 
-test('regole di banda: lettura e modifica', async () => {
+test('"Sospendi trasferimenti" blocca upload, download e link già dati; poi tutto riprende', async () => {
+  const files = (await app.inject({ method: 'GET', url: '/api/file', headers: { cookie: adminCookie } })).json();
+  const link = (await app.inject({ method: 'POST', url: `/api/file/${files.file[0].id}/download`, headers: { cookie: adminCookie } })).json().link;
+  assert.equal((await app.inject({ method: 'GET', url: link })).statusCode, 200);
+
+  const on = await app.inject({ method: 'PUT', url: '/api/admin/sospensione', headers: { cookie: adminCookie }, payload: { sospesi: true } });
+  assert.equal(on.statusCode, 200);
+  assert.equal((await app.inject({ method: 'GET', url: '/api/io', headers: { cookie: adminCookie } })).json().sospesi, true);
+  const up = await app.inject({ method: 'POST', url: '/api/upload/richieste', headers: { cookie: adminCookie }, payload: { nome: 'x.mkv', dimensione: 10 } });
+  assert.equal(up.statusCode, 503);
+  assert.equal((await app.inject({ method: 'GET', url: link })).statusCode, 503);
+
+  await app.inject({ method: 'PUT', url: '/api/admin/sospensione', headers: { cookie: adminCookie }, payload: { sospesi: false } });
+  assert.equal((await app.inject({ method: 'GET', url: link })).statusCode, 200);
+});
+
+test('cartelle: si vedono solo quelle esposte, gli upload vanno nella cartella scelta', async () => {
+  const nas = path.join(dir, 'nas');
+  for (const d of ['Film', 'Serie/Stagione 1', 'Privata', 'Caricati']) fs.mkdirSync(path.join(nas, d), { recursive: true });
+  fs.writeFileSync(path.join(nas, 'Film', 'a.mkv'), 'aaa');
+  fs.writeFileSync(path.join(nas, 'Serie/Stagione 1', 'b.mkv'), 'bbb');
+  fs.writeFileSync(path.join(nas, 'Privata', 'c.mkv'), 'ccc');
+
+  const all = (await app.inject({ method: 'GET', url: '/api/admin/cartelle', headers: { cookie: adminCookie } })).json();
+  assert.ok(all.cartelle.some((c: any) => c.percorso === 'Serie/Stagione 1' && c.livello === 2));
+  assert.ok(!all.cartelle.some((c: any) => c.nome.startsWith('.')), 'la cartella degli upload in corso resta nascosta');
+
+  const bad = await app.inject({ method: 'PUT', url: '/api/admin/cartelle', headers: { cookie: adminCookie }, payload: { esposte: ['../fuori'], upload: null } });
+  assert.equal(bad.statusCode, 400);
+
+  // Prima del cambio: tutto esposto (salvare le cartelle fa rileggere subito il NAS), prendo l'id del file privato.
+  await app.inject({ method: 'PUT', url: '/api/admin/cartelle', headers: { cookie: adminCookie }, payload: { esposte: [''], upload: '' } });
+  const before = (await app.inject({ method: 'GET', url: '/api/file', headers: { cookie: adminCookie } })).json();
+  const privata = before.file.find((f: any) => f.percorso === 'Privata/c.mkv');
+  assert.ok(privata);
+
   const put = await app.inject({
-    method: 'PUT', url: '/api/admin/regole', headers: { cookie: adminCookie },
-    payload: { default_period: 'month', night_window: { start: '01:00', end: '06:00' } },
+    method: 'PUT', url: '/api/admin/cartelle', headers: { cookie: adminCookie }, payload: { esposte: ['Film', 'Serie'], upload: 'Caricati' },
   });
   assert.equal(put.statusCode, 200, put.body);
-  assert.equal(put.json().default_period, 'month');
-  const bad = await app.inject({ method: 'PUT', url: '/api/admin/regole', headers: { cookie: adminCookie }, payload: { night_window: { start: '25:00', end: '06:00' } } });
-  assert.equal(bad.statusCode, 400);
+  assert.deepEqual(put.json().esposte.sort(), ['Caricati', 'Film', 'Serie'], 'la cartella di upload diventa anche di download');
+
+  const list = (await app.inject({ method: 'GET', url: '/api/file', headers: { cookie: adminCookie } })).json();
+  const paths = list.file.map((f: any) => f.percorso).sort();
+  assert.deepEqual(paths, ['Film/a.mkv', 'Serie/Stagione 1/b.mkv']);
+  const hiddenDl = await app.inject({ method: 'POST', url: `/api/file/${privata.id}/download`, headers: { cookie: adminCookie } });
+  assert.equal(hiddenDl.statusCode, 404);
+
+  // Upload: finisce in Caricati ed è subito scaricabile.
+  const content = Buffer.from('nuovo film');
+  const t = (await app.inject({ method: 'POST', url: '/api/upload/richieste', headers: { cookie: adminCookie }, payload: { nome: 'Nuovo.mkv', dimensione: content.length } })).json();
+  const c = await tusFetch('/api/upload/tus', 'POST', { cookie: adminCookie, 'upload-length': String(content.length), 'upload-metadata': `transferId ${b64(String(t.id))}` });
+  const p = await tusFetch(c.headers.get('location')!, 'PATCH', { cookie: adminCookie, 'upload-offset': '0', 'content-type': 'application/offset+octet-stream' }, content);
+  assert.equal(p.status, 204, await p.text());
+  assert.equal(fs.readFileSync(path.join(nas, 'Caricati', 'Nuovo.mkv'), 'utf8'), 'nuovo film');
+  const after = (await app.inject({ method: 'GET', url: '/api/file', headers: { cookie: adminCookie } })).json();
+  assert.ok(after.file.some((f: any) => f.percorso === 'Caricati/Nuovo.mkv'));
+
+  // Nessuna cartella di upload: niente upload.
+  await app.inject({ method: 'PUT', url: '/api/admin/cartelle', headers: { cookie: adminCookie }, payload: { esposte: ['Film'], upload: null } });
+  const noUp = await app.inject({ method: 'POST', url: '/api/upload/richieste', headers: { cookie: adminCookie }, payload: { nome: 'x', dimensione: 1 } });
+  assert.equal(noUp.statusCode, 409);
+});
+
+test('niente regole globali modificabili: solo i valori proposti per un nuovo utente', async () => {
+  const put = await app.inject({ method: 'PUT', url: '/api/admin/regole', headers: { cookie: adminCookie }, payload: {} });
+  assert.equal(put.statusCode, 404);
+  const d = await app.inject({ method: 'GET', url: '/api/admin/predefiniti', headers: { cookie: adminCookie } });
+  assert.deepEqual(d.json(), { quota: 400 * GB, periodo: 'week', velocitaKbps: 50_000, simultanei: 2 });
+  const u = await app.inject({ method: 'GET', url: '/api/admin/predefiniti', headers: { cookie: userCookie } });
+  assert.notEqual(u.statusCode, 200);
 });

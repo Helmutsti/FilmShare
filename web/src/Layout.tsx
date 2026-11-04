@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { LogOut, Play } from 'lucide-react';
+import { LogOut, PauseCircle, Play } from 'lucide-react';
 import { api } from './api';
 import { useLive } from './live';
 import { LiveBand, useSession } from './session';
@@ -22,8 +22,8 @@ function AdminNav() {
     <div className="nav-group">
       <span className="t-overline">Amministrazione</span>
       <Item to="/admin/approvazioni" label="Approvazioni" count={riepilogo.data?.inAttesa} />
-      <Item to="/admin/regole" label="Regole di banda" />
       <Item to="/admin/utenti" label="Utenti" />
+      <Item to="/admin/cartelle" label="Cartelle" />
     </div>
   );
 }
@@ -58,7 +58,20 @@ export function Layout() {
           <button className="btn btn-ghost btn-sm" onClick={esci} aria-label="Esci" title="Esci"><LogOut size={16} /></button>
         </div>
       </aside>
-      <main className="main"><Outlet /></main>
+      <main className="main">
+        {io.sospesi && (
+          <div className="banner banner-danger" role="alert">
+            <PauseCircle size={20} color="var(--status-danger)" />
+            <div className="grow">
+              <div className="t-strong">Trasferimenti sospesi</div>
+              <div className="t-caption c-secondary">
+                L'amministratore ha fermato tutti gli upload e i download. Quando li riattiva puoi riprendere da dove eri rimasto.
+              </div>
+            </div>
+          </div>
+        )}
+        <Outlet />
+      </main>
     </div>
   );
 }
