@@ -61,6 +61,12 @@ button, input, select { font: inherit; color: inherit; }
 
 /* Struttura */
 .shell { display: flex; min-height: 100vh; }
+/* Barra in alto e pulsanti del menu: solo sul telefono (vedi in fondo). */
+.topbar, .menu-back, .btn.sidebar-chiudi { display: none; }
+.btn.topbar-menu { position: relative; width: 40px; height: 40px; }
+.topbar-punto { position: absolute; top: 8px; right: 8px; width: 8px; height: 8px; border-radius: 4px; background: var(--accent-primary); }
+.pannello-laterale { width: 420px; flex: none; }
+.cerca { width: 280px; }
 .sidebar {
   width: 248px; flex: none; background: var(--bg-surface); border-right: 1px solid var(--border-default);
   display: flex; flex-direction: column; justify-content: space-between; padding: 24px 16px 16px; position: sticky; top: 0; height: 100vh;
@@ -89,6 +95,7 @@ button, input, select { font: inherit; color: inherit; }
 .stack-sm { display: flex; flex-direction: column; gap: 4px; }
 .between { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .inline { display: flex; align-items: center; gap: 8px; }
+.inline > svg { flex: none; } /* le icone non si schiacciano accanto a un testo lungo */
 
 /* Superfici */
 .card { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-card); padding: var(--space-card); display: flex; flex-direction: column; gap: 10px; }
@@ -190,3 +197,93 @@ select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csv
 .empty { padding: 32px; text-align: center; color: var(--text-muted); font-size: 14px; }
 .error-text { color: var(--status-danger); font-size: 13px; }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Archivio a copertine (pagina "Archivio") */
+.archivio-filtri { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.griglia { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 28px 20px; }
+.titolo-card { background: none; border: none; padding: 0; text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 10px; color: inherit; min-width: 0; }
+.titolo-card:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 4px; border-radius: 10px; }
+.poster { position: relative; aspect-ratio: 2 / 3; border-radius: 10px; overflow: hidden; background: var(--bg-elevated); border: 1px solid var(--border-default); transition: transform 0.15s, border-color 0.15s; }
+.titolo-card:hover .poster { transform: translateY(-3px); border-color: var(--border-strong); }
+@media (prefers-reduced-motion: reduce) { .poster { transition: none; } .titolo-card:hover .poster { transform: none; } }
+.poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.poster-tag { position: absolute; top: 8px; left: 8px; height: 22px; padding: 0 8px; border-radius: 11px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; background: rgb(11 15 23 / 0.78); color: var(--text-primary); backdrop-filter: blur(4px); }
+.poster-vuoto { width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; gap: 6px; padding: 16px; background: linear-gradient(160deg, var(--bg-hover), var(--bg-surface)); overflow: hidden; }
+.poster-vuoto > svg { color: var(--text-muted); margin-bottom: auto; flex: none; }
+.poster-vuoto strong { font-size: 15px; line-height: 1.25; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
+.titolo-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+
+.scheda { width: min(860px, 100%); max-height: calc(100vh - 32px); overflow: auto; padding: 0; gap: 0; position: relative; }
+.scheda-chiudi { position: absolute; top: 12px; right: 12px; }
+.scheda-testa { display: flex; gap: 24px; padding: 24px; }
+.scheda-testa .poster { width: 180px; flex: none; }
+.scheda-testa .stack { flex: 1; min-width: 0; padding-right: 32px; }
+.scheda-trama { color: var(--text-secondary); font-size: 14px; line-height: 1.55; margin: 0; }
+.scheda-corpo { border-top: 1px solid var(--border-default); padding: 20px 24px 24px; display: flex; flex-direction: column; gap: 16px; }
+.scheda-corpo .tabs { flex-wrap: wrap; row-gap: 8px; }
+.episodi { border: 1px solid var(--border-default); border-radius: var(--radius-card); overflow: hidden; }
+.episodio { display: flex; align-items: center; gap: 14px; padding: 10px 16px; border-top: 1px solid var(--border-default); }
+.episodio:first-child { border-top: none; }
+.episodio-num { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; background: var(--tint-primary-16); color: var(--accent-primary); font-size: 12px; font-weight: 600; flex: none; }
+.episodio > .grow { flex: 1; min-width: 0; }
+.episodio-azioni { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: none; text-align: right; max-width: 260px; }
+
+/* Elenco che si apre: al posto delle tabelle sul telefono (Approvazioni, Utenti, Cartelle) */
+.elenco-riga + .elenco-riga { border-top: 1px solid var(--border-default); }
+.elenco-riga.aperta { background: var(--bg-elevated); }
+.elenco-testa { display: flex; align-items: center; }
+.elenco-pulsante { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: none; border: none; color: inherit; text-align: left; cursor: pointer; }
+.elenco-pulsante:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: -2px; border-radius: var(--radius-card); }
+.elenco-testi { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.elenco-freccia { flex: none; color: var(--text-muted); transition: transform 0.15s; }
+.elenco-riga.aperta .elenco-freccia { transform: rotate(180deg); }
+.elenco-fisso { flex: none; display: flex; align-items: center; padding-right: 16px; }
+.elenco-aperta { display: flex; flex-direction: column; gap: 10px; padding: 0 16px 14px; }
+.elenco-aperta.rientro { padding-left: 58px; }
+.elenco-aperta > .card { border: none; background: none; padding: 0; width: auto; }
+.elenco-azioni { display: flex; gap: 8px; }
+.elenco-azioni > .btn { flex: 1; }
+@media (prefers-reduced-motion: reduce) { .elenco-freccia { transition: none; } }
+
+/* Telefono (fino a 720 px): menu a pannello, una colonna, tabelle che scorrono dentro il loro riquadro. */
+@media (max-width: 720px) {
+  .topbar { display: flex; align-items: center; gap: 4px; position: sticky; top: 0; z-index: 30; height: 56px; padding: 0 8px;
+    background: var(--bg-surface); border-bottom: 1px solid var(--border-default); }
+  .topbar .brand { padding: 0; }
+  .shell { flex-direction: column; }
+  .sidebar { position: fixed; left: 0; top: 0; bottom: 0; height: 100dvh; width: min(300px, 85vw); z-index: 50;
+    transform: translateX(-100%); visibility: hidden; transition: transform 0.2s, visibility 0.2s; }
+  .sidebar.aperta { transform: none; visibility: visible; }
+  .menu-back { display: block; position: fixed; inset: 0; background: rgb(0 0 0 / 0.6); z-index: 45; }
+  .sidebar-testa { margin-bottom: 20px; }
+  .sidebar-testa .brand { padding: 0 8px; }
+  .btn.sidebar-chiudi { display: inline-flex; }
+
+  .main { padding: 20px 16px 32px; gap: 20px; }
+  .t-display { font-size: 24px; }
+  .page-header { flex-wrap: wrap; }
+  .page-header > div:first-child { flex: 1 1 100%; }
+  .page-header > .inline { flex-wrap: wrap; width: 100%; }
+  .cerca { width: 100%; }
+  .row { flex-direction: column; }
+  .row > * { align-self: stretch; }
+  .pannello-laterale { width: auto; flex: 1 1 auto; }
+  .card.flush { overflow-x: auto; }
+  .table { min-width: 560px; }
+  .tabs { overflow-x: auto; scrollbar-width: none; }
+  .tab { white-space: nowrap; flex: none; }
+  .banner { align-items: flex-start; flex-wrap: wrap; }
+  .banner > .grow { flex: 1 1 calc(100% - 44px); }
+  .between { flex-wrap: wrap; row-gap: 6px; }
+
+  .griglia { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 12px; }
+  .modal-back { padding: 8px; }
+  .scheda { max-height: calc(100dvh - 16px); }
+  .scheda-testa { flex-direction: column; padding: 16px; gap: 16px; }
+  .scheda-testa .poster { width: 120px; }
+  .scheda-testa .stack { padding-right: 0; }
+  .scheda-corpo { padding: 16px; }
+  .episodio { flex-wrap: wrap; padding: 10px 12px; }
+  .episodio-azioni { align-items: flex-start; text-align: left; max-width: none; width: 100%; padding-left: 46px; }
+}
+@media (max-width: 720px) and (prefers-reduced-motion: reduce) { .sidebar { transition: none; } }

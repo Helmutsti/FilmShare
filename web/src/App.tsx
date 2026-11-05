@@ -10,6 +10,7 @@ import { Trasferimenti } from './pages/Trasferimenti';
 import { Approvazioni } from './pages/Approvazioni';
 import { Utenti } from './pages/Utenti';
 import { Cartelle } from './pages/Cartelle';
+import { Catalogo } from './pages/Catalogo';
 
 function Routing() {
   const { io, loading } = useSession();
@@ -26,6 +27,7 @@ function Routing() {
         {admin && <Route path="/admin/approvazioni" element={<Approvazioni />} />}
         {admin && <Route path="/admin/utenti" element={<Utenti />} />}
         {admin && <Route path="/admin/cartelle" element={<Cartelle />} />}
+        {admin && <Route path="/admin/catalogo" element={<Catalogo />} />}
         <Route path="*" element={<Navigate to="/carica" replace />} />
       </Route>
     </Routes>

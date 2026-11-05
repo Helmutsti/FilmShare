@@ -12,6 +12,7 @@ Disegni: https://www.figma.com/design/DSXFok6tsIbfbtBWXjt99O
 | `server/` | Fastify (Node, TypeScript): accesso, quote, approvazioni, upload tus, link di download firmati, SSE, notifiche push |
 | `server/migrations/` | Struttura del database SQLite, file `NNN_nome.sql` applicati in ordine all'avvio |
 | `web/` | Dashboard React + Vite; upload a pezzi con `tus-js-client` |
+| `strumenti/` | Script che esportano il catalogo di Jellyfin in uno zip (Windows: `.ps1`, Mac: `.sh`) |
 | `Dockerfile`, `compose.yaml` | Una sola immagine: il server Node risponde alle API, serve la dashboard compilata e manda i download |
 
 ## Installazione con Docker (server di casa)
@@ -33,6 +34,7 @@ Disegni: https://www.figma.com/design/DSXFok6tsIbfbtBWXjt99O
 
 Dove stanno i dati:
 - **database**: volume Docker `dati` (disco del server). Mai sul NAS: SQLite su NFS si può rovinare. Per il backup basta copiare il volume.
+- **copertine** del catalogo: nello stesso volume, cartella `copertine` accanto al database (`COVERS_PATH` per cambiarla).
 - **film**: `SHARED_DIR`, la cartella principale del NAS (una sola). Dalla pagina **Cartelle** l'admin sceglie quali
   sottocartelle vedono gli utenti (tutti i file insieme, in un unico elenco) e in quale finiscono gli upload; la cartella
   di upload è sempre anche scaricabile. Una cartella visibile include le sue sottocartelle.
@@ -40,6 +42,29 @@ Dove stanno i dati:
   così a fine upload il file si sposta all'istante invece di essere ricopiato.
 - I file copiati a mano in una cartella visibile compaiono da soli entro 15 secondi.
 - Per cambiare la cartella principale: modifica `SHARED_DIR` in `.env` e `docker compose up -d`.
+
+## Archivio a copertine: il catalogo da Jellyfin
+La pagina **Archivio** mostra film e serie come copertine; aprendo un titolo si vedono trama, stagioni ed episodi, ognuno
+con il suo pulsante Scarica (stesse regole di quota e approvazione di sempre). Copertine, titoli e trame vengono da un
+**catalogo esportato da Jellyfin**: FilmShare non parla mai con Jellyfin, quindi non serve aprire niente nel firewall.
+
+1. In Jellyfin crea una chiave API: Dashboard → Chiavi API → "+".
+2. Da un computer che raggiunge Jellyfin lancia lo script (legge soltanto) e ottieni `catalogo-jellyfin.zip`:
+   ```
+   bash strumenti/esporta-catalogo-jellyfin.sh http://jellyfin:8096                    # Mac
+   .\strumenti\esporta-catalogo-jellyfin.ps1 -Server http://jellyfin:8096                # Windows (PowerShell)
+   ```
+   Esporta solo film e serie (con stagioni, episodi e copertine): niente collezioni, playlist, musica o foto.
+3. In FilmShare, pagina **Catalogo** (amministrazione) → **Carica zip**. Il nuovo catalogo sostituisce il precedente.
+
+Come si abbinano i file: Jellyfin e FilmShare vedono il NAS da percorsi diversi (es. `\\nas\Multimedia\Films\Amadeus.mkv`
+e `Films/Amadeus.mkv`), quindi si confronta il **nome del file**; se più file hanno lo stesso nome vince quello con più
+cartelle finali uguali. L'abbinamento si rifà a ogni apertura dell'Archivio: i file aggiunti dopo trovano la scheda
+appena sono nel catalogo caricato. I file che il catalogo non conosce compaiono con un riquadro neutro (scheda "Altri file");
+la pagina **Catalogo** li elenca. Un titolo del catalogo senza file nelle cartelle visibili non compare.
+
+Formato dello zip (versione 1): `catalogo.json` (`formato: "filmshare-catalogo"`, `titoli` con `tipo` film/serie, `titolo`,
+`anno`, `generi`, `trama`, `percorso`, `copertina`, e per le serie `stagioni` ed `episodi`) più la cartella `copertine/`.
 
 ## Sviluppo
 ```

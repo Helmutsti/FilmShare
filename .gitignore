@@ -3,3 +3,6 @@ dist/
 data/
 .env
 *.log
+# Cataloghi esportati da Jellyfin: dati personali, non vanno nel repository
+catalogo-jellyfin.zip
+catalogo-jellyfin/

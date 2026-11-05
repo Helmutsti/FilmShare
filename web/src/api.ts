@@ -33,6 +33,31 @@ export interface FileCondiviso {
   id: number; nome: string; percorso: string; dimensione: number; aggiunto: string; caricatoDa: string | null;
   download: Trasferimento | null;
 }
+/** Un film o una serie del catalogo di Jellyfin che ha almeno un file sul NAS. */
+export interface Titolo {
+  id: number; tipo: 'film' | 'serie'; titolo: string; anno: number | null; generi: string[]; copertina: string | null;
+  /** Stagioni con almeno un episodio sul NAS (0 per i film). */
+  stagioni: number;
+  file: number; dimensione: number; aggiunto: string;
+}
+export interface FileTitolo extends FileCondiviso { stagione: number | null; episodio: number | null; titoloEpisodio: string | null }
+export interface DettaglioTitolo extends Titolo {
+  titoloOriginale: string | null; trama: string | null;
+  elencoStagioni: { numero: number; copertina: string | null }[];
+  elencoFile: FileTitolo[];
+}
+export interface Archivio {
+  titoli: Titolo[];
+  /** File del NAS che il catalogo non conosce. */
+  altri: FileCondiviso[];
+  banda: Banda;
+  /** C'è un catalogo caricato? */
+  catalogo: boolean;
+}
+export interface InfoCatalogo {
+  info: { caricato: string; generato: string | null; origine: string | null; film: number; serie: number; episodi: number; copertine: number } | null;
+  fileSulNas: number; fileAbbinati: number; titoliConFile: number; titoliSenzaFile: number; esempiNonAbbinati: string[];
+}
 export interface Richiesta extends Trasferimento {
   utente: { id: number; nome: string; email: string };
   impatto: { periodo: Period; percentuale: number | null };
@@ -75,6 +100,8 @@ export const api = {
   annulla: (id: number) => call<{ ok: true }>('DELETE', `/api/trasferimenti/${id}`),
   richiestaUpload: (nome: string, dimensione: number) => call<Trasferimento>('POST', '/api/upload/richieste', { nome, dimensione }),
   file: () => call<{ file: FileCondiviso[]; banda: Banda }>('GET', '/api/file'),
+  archivio: () => call<Archivio>('GET', '/api/archivio'),
+  titolo: (id: number) => call<DettaglioTitolo>('GET', `/api/archivio/${id}`),
   scarica: (fileId: number) => call<Trasferimento>('POST', `/api/file/${fileId}/download`),
 
   utenti: () => call<UtenteAdmin[]>('GET', '/api/admin/utenti'),
@@ -93,6 +120,15 @@ export const api = {
   sospendiTrasferimenti: (sospesi: boolean) => call<{ sospesi: boolean }>('PUT', '/api/admin/sospensione', { sospesi }),
   cartelle: () => call<Cartelle>('GET', '/api/admin/cartelle'),
   salvaCartelle: (b: { esposte: string[]; upload: string | null }) => call<{ esposte: string[]; upload: string | null }>('PUT', '/api/admin/cartelle', b),
+  catalogo: () => call<InfoCatalogo>('GET', '/api/admin/catalogo'),
+  caricaCatalogo: async (zip: File) => {
+    const res = await fetch('/api/admin/catalogo', {
+      method: 'PUT', body: zip, credentials: 'same-origin', headers: { 'Content-Type': 'application/zip' },
+    });
+    const data = res.headers.get('content-type')?.includes('json') ? await res.json() : null;
+    if (!res.ok) throw new ApiError(res.status, data?.errore ?? `Errore ${res.status}`);
+    return data as NonNullable<InfoCatalogo['info']>;
+  },
   predefiniti: () => call<Predefiniti>('GET', '/api/admin/predefiniti'),
   iscriviNotifiche: (sub: PushSubscriptionJSON) => call<{ ok: true }>('POST', '/api/notifiche/iscrizione', sub),
 };

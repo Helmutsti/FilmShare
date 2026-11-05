@@ -24,6 +24,8 @@ export interface Config {
   host: string;
   port: number;
   dbPath: string;
+  /** Copertine del catalogo (pagina "Catalogo"): sul disco del server, accanto al database. */
+  coversPath: string;
   sharedPath: string;
   uploadTmpPath: string;
   /** Dashboard compilata (web/dist): la serve il server stesso. Se la cartella non c'è (sviluppo) la serve Vite. */
@@ -37,10 +39,12 @@ export interface Config {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+  const dbPath = env.DB_PATH?.trim() === ':memory:' ? ':memory:' : percorso(env.DB_PATH, './data/filmshare.db');
   return {
     host: env.HOST?.trim() || '127.0.0.1',
     port: numero(env.PORT, 3000, 'PORT'),
-    dbPath: env.DB_PATH?.trim() === ':memory:' ? ':memory:' : percorso(env.DB_PATH, './data/filmshare.db'),
+    dbPath,
+    coversPath: percorso(env.COVERS_PATH, dbPath === ':memory:' ? './data/copertine' : path.join(path.dirname(dbPath), 'copertine')),
     sharedPath: percorso(env.SHARED_PATH, './data/condivisi'),
     uploadTmpPath: percorso(env.UPLOAD_TMP_PATH, './data/condivisi/.upload-in-corso'),
     webPath: percorso(env.WEB_PATH, './web/dist'),

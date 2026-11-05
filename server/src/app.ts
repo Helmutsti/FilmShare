@@ -17,6 +17,7 @@ import { transferRoutes } from './routes/transfers.js';
 import { uploadRoutes } from './routes/upload.js';
 import { adminRoutes } from './routes/admin.js';
 import { liveRoutes } from './routes/live.js';
+import { catalogRoutes } from './routes/catalog.js';
 
 /** Costruisce l'app senza metterla in ascolto: la usano sia l'avvio sia i test. */
 export async function buildApp(config: Config, { logger = true } = {}) {
@@ -53,6 +54,7 @@ export async function buildApp(config: Config, { logger = true } = {}) {
   await app.register(uploadRoutes, { ctx });
   await app.register(adminRoutes, { ctx });
   await app.register(liveRoutes, { ctx });
+  await app.register(catalogRoutes, { ctx });
   await serveDashboard(app, config.webPath);
 
   const timers = [

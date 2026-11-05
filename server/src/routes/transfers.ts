@@ -15,6 +15,31 @@ export function transferView(ctx: Ctx, t: Transfer) {
   };
 }
 
+/** I file delle cartelle esposte, ognuno con l'ultimo download valido di questa persona (se c'è). */
+export async function sharedFiles(ctx: Ctx, userId: number) {
+  const { db, config } = ctx;
+  await syncShared(db, config.sharedPath);
+  const files = db
+    .prepare(
+      `SELECT f.id, f.name, f.rel_path, f.size_bytes, f.created_at, u.name AS uploader
+       FROM files f LEFT JOIN users u ON u.id = f.uploaded_by ORDER BY f.created_at DESC`,
+    )
+    .all() as { id: number; name: string; rel_path: string; size_bytes: number; created_at: string; uploader: string | null }[];
+  const mine = db
+    .prepare(
+      `SELECT * FROM transfers WHERE user_id = ? AND kind = 'download' AND status IN ('pending','approved','completed')
+       ORDER BY created_at DESC`,
+    )
+    .all(userId) as Transfer[];
+  const byFile = new Map<number, Transfer>();
+  for (const t of mine) if (t.file_id !== null && !byFile.has(t.file_id)) byFile.set(t.file_id, t);
+  return files.map((f) => ({
+    id: f.id, nome: f.name, percorso: f.rel_path, dimensione: f.size_bytes, aggiunto: f.created_at,
+    caricatoDa: f.uploader, download: byFile.has(f.id) ? transferView(ctx, byFile.get(f.id)!) : null,
+  }));
+}
+export type SharedFile = Awaited<ReturnType<typeof sharedFiles>>[number];
+
 export async function transferRoutes(app: FastifyInstance, { ctx }: { ctx: Ctx }) {
   const { db, config } = ctx;
 
@@ -52,28 +77,7 @@ export async function transferRoutes(app: FastifyInstance, { ctx }: { ctx: Ctx }
   /** Cartella condivisa, con lo stato del download per chi guarda. */
   app.get('/api/file', async (req) => {
     const u = requireUser(req);
-    await syncShared(db, config.sharedPath);
-    const files = db
-      .prepare(
-        `SELECT f.id, f.name, f.rel_path, f.size_bytes, f.created_at, u.name AS uploader
-         FROM files f LEFT JOIN users u ON u.id = f.uploaded_by ORDER BY f.created_at DESC`,
-      )
-      .all() as { id: number; name: string; rel_path: string; size_bytes: number; created_at: string; uploader: string | null }[];
-    const mine = db
-      .prepare(
-        `SELECT * FROM transfers WHERE user_id = ? AND kind = 'download' AND status IN ('pending','approved','completed')
-         ORDER BY created_at DESC`,
-      )
-      .all(u.id) as Transfer[];
-    const byFile = new Map<number, Transfer>();
-    for (const t of mine) if (t.file_id !== null && !byFile.has(t.file_id)) byFile.set(t.file_id, t);
-    return {
-      file: files.map((f) => ({
-        id: f.id, nome: f.name, percorso: f.rel_path, dimensione: f.size_bytes, aggiunto: f.created_at,
-        caricatoDa: f.uploader, download: byFile.has(f.id) ? transferView(ctx, byFile.get(f.id)!) : null,
-      })),
-      banda: getUsage(db, u.id),
-    };
+    return { file: await sharedFiles(ctx, u.id), banda: getUsage(db, u.id) };
   });
 
   /** "Scarica" o "Richiedi download": se c'è già un link valido lo riusa, senza prenotare di nuovo. */

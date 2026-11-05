@@ -3,6 +3,7 @@ import { Folder, FolderOpen, Info, Upload } from 'lucide-react';
 import { api } from '../api';
 import { useData } from '../useData';
 import { PageHeader, Toggle } from '../ui';
+import { RigaElenco, useTelefono } from '../elenco';
 
 /** "" è la cartella principale del NAS (quella montata da Docker). */
 const ROOT = '';
@@ -18,6 +19,8 @@ export function Cartelle() {
   const [esposte, setEsposte] = useState<Set<string>>(new Set());
   const [upload, setUpload] = useState<string | null>(null);
   const [stato, setStato] = useState<string | null>(null);
+  const telefono = useTelefono();
+  const [aperta, setAperta] = useState<string | null>(null);
 
   useEffect(() => {
     if (data.data) { setEsposte(new Set(data.data.esposte)); setUpload(data.data.upload); }
@@ -74,6 +77,25 @@ export function Cartelle() {
       )}
 
       <section className="card flush">
+        {telefono ? rows.map((c) => {
+          // Telefono: riga con nome e interruttore; aprendola si sceglie se è la cartella degli upload
+          const parent = coveredBy(c.percorso, esposte);
+          const on = esposte.has(c.percorso) || parent !== null;
+          const isUpload = upload === c.percorso;
+          return (
+            <RigaElenco key={c.percorso || '(root)'} aperta={aperta === c.percorso} onToggle={() => setAperta(aperta === c.percorso ? null : c.percorso)}
+              inizio={<span style={{ paddingLeft: c.livello * 16, display: 'flex' }}>{on ? <FolderOpen size={18} color="var(--accent-primary)" /> : <Folder size={18} color="var(--text-muted)" />}</span>}
+              titolo={c.nome}
+              sotto={[parent !== null ? 'inclusa' : on ? 'visibile' : 'nascosta', isUpload ? 'qui vanno gli upload' : ''].filter(Boolean).join(' · ')}
+              fisso={<Toggle checked={on} disabled={parent !== null} onChange={(v) => toggle(c.percorso, v)} label={`Mostra ${c.nome}`} />}>
+              {c.livello > 1 && <span className="t-caption c-muted">{c.percorso}</span>}
+              <label className="inline" style={{ gap: 8, cursor: 'pointer' }}>
+                <input type="radio" name="upload" checked={isUpload} onChange={() => chooseUpload(c.percorso)} />
+                <span className="t-body">Gli upload vanno in questa cartella</span>
+              </label>
+            </RigaElenco>
+          );
+        }) : (
         <table className="table">
           <thead>
             <tr><th>Cartella</th><th style={{ width: 200 }}>Visibile nei download</th><th style={{ width: 170 }}>Destinazione upload</th></tr>
@@ -111,6 +133,7 @@ export function Cartelle() {
             })}
           </tbody>
         </table>
+        )}
         {data.data.cartelle.length === 0 && <div className="empty">Nella cartella principale non ci sono sottocartelle.</div>}
       </section>
       <p className="inline t-caption c-muted" style={{ margin: 0 }}>

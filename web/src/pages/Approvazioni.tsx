@@ -5,6 +5,7 @@ import { bytes, fa, quotaNome } from '../format';
 import { useLive } from '../live';
 import { useData } from '../useData';
 import { Avatar, PageHeader, SimpleBar, statoBadge } from '../ui';
+import { RigaElenco, useTelefono } from '../elenco';
 
 type Tab = 'tutte' | 'upload' | 'download' | 'storico';
 
@@ -12,6 +13,8 @@ export function Approvazioni() {
   const [tab, setTab] = useState<Tab>('tutte');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const telefono = useTelefono();
+  const [aperta, setAperta] = useState<number | null>(null);
   const riepilogo = useData(api.riepilogo);
   const attesa = useData(() => api.richieste('attesa'));
   const storico = useData(() => api.richieste('storico'), []);
@@ -75,6 +78,29 @@ export function Approvazioni() {
       <section className="card flush">
         {rows.length === 0 ? (
           <div className="empty">{tab === 'storico' ? 'Nessuna decisione ancora.' : 'Nessuna richiesta in attesa.'}</div>
+        ) : telefono ? (
+          // Telefono: elenco che si apre al posto della tabella
+          rows.map((q) => {
+            const p = q.impatto.percentuale ?? 0;
+            const tone = p > 100 ? 'danger' : p >= 80 ? 'warn' : 'ok';
+            const colore = tone === 'danger' ? 'c-danger' : tone === 'warn' ? 'c-warning' : 'c-success';
+            const tipo = q.tipo === 'upload' ? '↑ Upload' : '↓ Download';
+            return (
+              <RigaElenco key={q.id} aperta={aperta === q.id} onToggle={() => setAperta(aperta === q.id ? null : q.id)}
+                inizio={<Avatar nome={q.utente.nome} />} titolo={q.utente.nome} sotto={`${tipo} · ${q.nome}`}
+                destra={tab === 'storico' ? statoBadge(q) : <span className={`t-label ${colore}`}>{p}%</span>}>
+                <span className="t-caption c-secondary">{q.nome} · {bytes(q.dimensione)} · {fa(q.creato)}</span>
+                <SimpleBar value={Math.min(p, 100)} max={100} tone={tone} />
+                <span className={`t-caption ${colore}`}>{quotaNome[q.impatto.periodo]}: {p}%</span>
+                {tab !== 'storico' && (
+                  <div className="elenco-azioni">
+                    <button className="btn btn-danger" disabled={busy} onClick={() => act(() => api.rifiuta(q.id))}>Rifiuta</button>
+                    <button className="btn btn-success" disabled={busy} onClick={() => act(() => api.approva(q.id))}>Approva</button>
+                  </div>
+                )}
+              </RigaElenco>
+            );
+          })
         ) : (
           <table className="table">
             <thead><tr><th>Richiedente</th><th style={{ width: 120 }}>Tipo</th><th>File</th><th style={{ width: 190 }}>Impatto sulla quota</th><th style={{ width: 100 }}>Richiesto</th><th style={{ width: 190 }}>{tab === 'storico' ? 'Esito' : 'Azioni'}</th></tr></thead>

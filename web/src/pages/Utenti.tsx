@@ -5,6 +5,7 @@ import { useLive } from '../live';
 import { useSession } from '../session';
 import { useData } from '../useData';
 import { Avatar, Badge, BandBar, PageHeader, SimpleBar, statoBadge, SvuotaStorico, Toggle } from '../ui';
+import { RigaElenco, useTelefono } from '../elenco';
 
 type Tab = 'tutti' | 'attivi' | 'bloccati' | 'sospesi';
 
@@ -67,7 +68,7 @@ function Dettaglio({ id, onSaved }: { id: number; onSaved: () => void }) {
   const [pw, setPw] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
   useEffect(() => { if (u.data) setF(toLimitForm(u.data)); }, [u.data?.id, u.data?.limiti, u.data?.ruolo]);
-  if (!u.data || !f) return <section className="card" style={{ width: 420, flex: 'none' }}>Carico…</section>;
+  if (!u.data || !f) return <section className="card pannello-laterale">Carico…</section>;
   const d = u.data;
   const self = d.id === io?.utente.id;
 
@@ -85,7 +86,7 @@ function Dettaglio({ id, onSaved }: { id: number; onSaved: () => void }) {
   }
 
   return (
-    <section className="card" style={{ width: 420, flex: 'none', gap: 16 }} aria-label={`Dettaglio di ${d.nome}`}>
+    <section className="card pannello-laterale" style={{ gap: 16 }} aria-label={`Dettaglio di ${d.nome}`}>
       <div className="inline" style={{ gap: 12 }}>
         <Avatar nome={d.nome} large />
         <div className="stack-sm" style={{ gap: 2, minWidth: 0 }}>
@@ -210,8 +211,10 @@ export function Utenti() {
   const [tab, setTab] = useState<Tab>('tutti');
   const [sel, setSel] = useState<number | null>(null);
   const [nuovo, setNuovo] = useState(false);
+  const telefono = useTelefono();
   const all = utenti.data ?? [];
-  useEffect(() => { if (sel === null && all.length) setSel(all[0]!.id); }, [all, sel]);
+  // Su computer c'è sempre una persona selezionata (il riquadro accanto); sul telefono l'elenco parte chiuso.
+  useEffect(() => { if (!telefono && sel === null && all.length) setSel(all[0]!.id); }, [all, sel, telefono]);
   const count = (s: string) => all.filter((u) => u.stato === s).length;
   const rows = all.filter((u) =>
     tab === 'tutti' ? true : tab === 'attivi' ? u.stato === 'active' : tab === 'bloccati' ? u.stato === 'blocked' : u.stato === 'suspended');
@@ -234,6 +237,12 @@ export function Utenti() {
             <h2 className="t-heading">Persone</h2>
             <span className="t-caption c-muted">{all.length === 1 ? '1 utente' : `${all.length} utenti`}</span>
           </div>
+          {telefono ? rows.map((u) => (
+            <RigaElenco key={u.id} aperta={sel === u.id} onToggle={() => setSel(sel === u.id ? null : u.id)} rientro={false}
+              inizio={<Avatar nome={u.nome} />} titolo={u.nome} sotto={`${bytes(u.banda.used)} / ${bytes(u.banda.quota)}`} destra={statoUtente(u.stato)}>
+              <Dettaglio id={u.id} onSaved={utenti.reload} />
+            </RigaElenco>
+          )) : (
           <table className="table">
             <thead><tr><th>Utente</th><th style={{ width: 150 }}>Uso nel periodo</th><th style={{ width: 120 }}>Ultimo accesso</th><th style={{ width: 150 }}>Stato</th></tr></thead>
             <tbody>
@@ -255,9 +264,10 @@ export function Utenti() {
               ))}
             </tbody>
           </table>
+          )}
           {rows.length === 0 && <div className="empty">Nessun utente in questa vista.</div>}
         </section>
-        {sel !== null && <Dettaglio id={sel} onSaved={utenti.reload} />}
+        {!telefono && sel !== null && <Dettaglio id={sel} onSaved={utenti.reload} />}
       </div>
       {nuovo && <NuovoUtente onClose={() => setNuovo(false)} onCreated={(id) => { setNuovo(false); setSel(id); utenti.reload(); }} />}
     </>
